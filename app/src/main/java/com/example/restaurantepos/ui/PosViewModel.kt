@@ -168,6 +168,20 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
         }
     }
 
+    // Agrega esta función para actualizar productos existentes
+    fun updateProduct(product: ProductEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            dao.updateProduct(product)
+        }
+    }
+
+    // Actualiza createProduct para aceptar imageUri
+    fun createProduct(category: String, name: String, price: Double, imageUri: String? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            dao.insertProduct(ProductEntity(category = category, name = name, price = price, imageUri = imageUri))
+        }
+    }
+
     fun deleteArea(area: AreaEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             dao.deleteArea(area)

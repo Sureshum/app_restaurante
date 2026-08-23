@@ -1,161 +1,162 @@
 package com.example.restaurantepos.ui
 
+import android.content.Context
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.restaurantepos.data.ProductEntity
-import java.util.Locale
+import coil.compose.AsyncImage
+import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProductManagementScreen(
-    products: List<ProductEntity>,
+    onCreateProduct: (category: String, name: String, price: Double, imageUri: String?) -> Unit,
     onBack: () -> Unit
 ) {
-    val categories = remember(products) { products.map { it.category }.distinct() }
-    var selectedCategory by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
 
-    LaunchedEffect(categories) {
-        if (selectedCategory == null && categories.isNotEmpty()) {
-            selectedCategory = categories.first()
-        }
-    }
+    var name by remember { mutableStateOf("") }
+    var priceText by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf("") }
+    var imageUri by remember { mutableStateOf<String?>(null) }
 
-    val filteredProducts = remember(products, selectedCategory) {
-        if (selectedCategory != null) {
-            products.filter { it.category == selectedCategory }
-        } else {
-            products
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { selectedUri ->
+            val permanentPath = saveImageToInternalStorage(context, selectedUri)
+            if (permanentPath != null) {
+                imageUri = permanentPath
+            }
         }
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Menú del Sistema", fontWeight = FontWeight.Bold) },
+                title = { Text("Nuevo Producto", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Volver")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Atrás")
                     }
                 }
             )
         }
-    ) { paddingValues ->
-        Row(
+    ) { padding ->
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                .padding(padding)
                 .padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Surface(
+            Box(
                 modifier = Modifier
-                    .width(200.dp)
-                    .fillMaxHeight(),
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant
+                    .size(130.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.LightGray.copy(alpha = 0.3f))
+                    .clickable { imagePickerLauncher.launch("image/*") },
+                contentAlignment = Alignment.Center
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "Tipos de Comida",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    Spacer(Modifier.height(12.dp))
-
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                if (!imageUri.isNullOrEmpty()) {
+                    AsyncImage(
+                        model = File(imageUri!!),
+                        contentDescription = "Foto seleccionada",
+                        contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(categories, key = { it }) { category ->
-                            val isSelected = category == selectedCategory
-                            Button(
-                                onClick = { selectedCategory = category },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.surface,
-                                    contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary
-                                    else MaterialTheme.colorScheme.onSurface
-                                )
-                            ) {
-                                Text(text = category, fontWeight = FontWeight.Bold)
-                            }
-                        }
+                    )
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.AddAPhoto,
+                            contentDescription = "Agregar Foto",
+                            modifier = Modifier.size(40.dp),
+                            tint = Color.Gray
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Agregar Foto", color = Color.Gray)
                     }
                 }
             }
 
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-            ) {
-                Text(
-                    text = selectedCategory ?: "Productos",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Nombre del Producto") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
 
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 160.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(filteredProducts, key = { it.id }) { product ->
-                        val formattedPrice = String.format(Locale.US, "%.2f", product.price)
-                        Card(
-                            modifier = Modifier
-                                .height(110.dp)
-                                .fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(12.dp),
-                                verticalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = product.name,
-                                    fontWeight = FontWeight.Bold,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    maxLines = 2
-                                )
-                                Text(
-                                    text = "$$formattedPrice",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
+            OutlinedTextField(
+                value = priceText,
+                onValueChange = { priceText = it },
+                label = { Text("Precio") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            OutlinedTextField(
+                value = category,
+                onValueChange = { category = it },
+                label = { Text("Categoría (ej. Bebidas, Platos)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Button(
+                onClick = {
+                    val cleanName = name.trim()
+                    val cleanCategory = category.trim().ifEmpty { "General" }
+                    val price = priceText.toDoubleOrNull() ?: 0.0
+
+                    if (cleanName.isNotEmpty() && price > 0) {
+                        onCreateProduct(cleanCategory, cleanName, price, imageUri)
+                        onBack()
                     }
-                }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Guardar Producto")
             }
         }
+    }
+}
+
+fun saveImageToInternalStorage(context: Context, uri: Uri): String? {
+    return try {
+        val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
+        val fileName = "prod_img_${System.currentTimeMillis()}.jpg"
+        val file = File(context.filesDir, fileName)
+        val outputStream = FileOutputStream(file)
+
+        inputStream?.use { input ->
+            outputStream.use { output ->
+                input.copyTo(output)
+            }
+        }
+        file.absolutePath
+    } catch (e: Exception) {
+        e.printStackTrace()
+        null
     }
 }

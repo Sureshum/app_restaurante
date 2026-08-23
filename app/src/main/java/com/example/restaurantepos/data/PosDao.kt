@@ -44,11 +44,14 @@ interface PosDao {
     @Delete
     suspend fun deleteUser(user: UserEntity)
 
+    @Update
+    suspend fun updateProduct(product: ProductEntity)
+
     @Query("DELETE FROM order_items WHERE tableId = :tableId")
     suspend fun clearOrderItemsForTable(tableId: Int)
 
     @Delete
-    suspend fun deleteArea(area: AreaEntity)    
+    suspend fun deleteArea(area: AreaEntity)
 
     @Query("UPDATE tables SET currentTotal = :total, isOccupied = :isOccupied WHERE id = :tableId")
     suspend fun updateTableStatus(tableId: Int, total: Double, isOccupied: Boolean)

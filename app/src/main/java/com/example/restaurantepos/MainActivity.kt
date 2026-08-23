@@ -22,6 +22,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.restaurantepos.data.AppDatabase
+import com.example.restaurantepos.ui.MenuManagementScreen
 import com.example.restaurantepos.ui.OrderScreen
 import com.example.restaurantepos.ui.PosViewModel
 import com.example.restaurantepos.ui.PosViewModelFactory
@@ -133,7 +134,7 @@ fun RestaurantAppNavHost(viewModel: PosViewModel) {
                 onCreateProduct = { cat, name, price -> viewModel.createProduct(cat, name, price) },
                 onOpenSystemMenu = {
                     if (navController.currentBackStackEntry?.lifecycle?.currentState == Lifecycle.State.RESUMED) {
-                        navController.navigate("product_management")
+                        navController.navigate("menu_management")
                     }
                 },
                 onLogout = {
@@ -146,20 +147,42 @@ fun RestaurantAppNavHost(viewModel: PosViewModel) {
         }
 
         composable("product_management") {
-            val products by viewModel.products.collectAsState()
             ProductManagementScreen(
-                products = products,
-                onBack = { navController.safePopBackStack() }
+                onCreateProduct = { category, name, price, imageUri ->
+                    viewModel.createProduct(category, name, price, imageUri)
+                },
+                onBack = {
+                    navController.safePopBackStack()
+                }
             )
         }
 
+        // PANTALLA DE GESTIÓN DE MENÚ COMPLETO (Edición de fotos, precios y nombres)
+        composable("menu_management") {
+            val products by viewModel.products.collectAsState(initial = emptyList())
+            MenuManagementScreen(
+                products = products,
+                onUpdateProduct = { updatedProduct ->
+                    viewModel.updateProduct(updatedProduct)
+                },
+                onAddProductClick = {
+                    navController.navigate("product_management")
+                },
+                onBack = {
+                    navController.safePopBackStack()
+                }
+            )
+        }
+
+        // PANTALLA DE COMANDA DE LA MESA (Toma de pedidos limpia sin botón de editar)
         composable(
             route = "order_screen/{tableId}",
             arguments = listOf(navArgument("tableId") { type = NavType.IntType })
         ) { backStackEntry ->
             val tableId = backStackEntry.arguments?.getInt("tableId") ?: 0
             val products by viewModel.products.collectAsState()
-            val orderItems by viewModel.getOrderItemsForTable(tableId).collectAsState(initial = emptyList())
+            val orderItems by viewModel.getOrderItemsForTable(tableId)
+                .collectAsState(initial = emptyList())
 
             OrderScreen(
                 tableId = tableId,

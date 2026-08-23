@@ -46,7 +46,8 @@ data class ProductEntity(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val category: String,
     val name: String,
-    val price: Double
+    val price: Double,
+    val imageUri: String? = null
 )
 
 @Entity(tableName = "order_items")

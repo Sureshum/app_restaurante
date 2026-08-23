@@ -71,9 +71,6 @@ fun TableDashboardScreen(
                     IconButton(onClick = onOpenSystemMenu) {
                         Icon(Icons.Default.RestaurantMenu, contentDescription = "Menú del Sistema")
                     }
-                    IconButton(onClick = { showCreateProductDialog = true }) {
-                        Icon(Icons.Default.Add, contentDescription = "Añadir Comida al Menú")
-                    }
                     IconButton(onClick = onLogout) {
                         Icon(Icons.Default.ExitToApp, contentDescription = "Cerrar sesión")
                     }
