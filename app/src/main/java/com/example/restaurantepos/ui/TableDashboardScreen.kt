@@ -18,12 +18,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.restaurantepos.data.AreaEntity
 import com.example.restaurantepos.data.OrderItemEntity
 import com.example.restaurantepos.data.ProductEntity
 import com.example.restaurantepos.data.TableEntity
+import kotlinx.coroutines.delay
 import java.util.Locale
 
 val GreenAvailable = Color(0xFF2ECC71)
@@ -49,6 +51,8 @@ fun TableDashboardScreen(
     onOpenSystemMenu: () -> Unit,
     onLogout: () -> Unit
 ) {
+    val context = LocalContext.current
+
     var showTableConfigDialog by remember { mutableStateOf(false) }
     var showCreateProductDialog by remember { mutableStateOf(false) }
     var showCreateAreaDialog by remember { mutableStateOf(false) }
@@ -65,7 +69,80 @@ fun TableDashboardScreen(
         }
     }
 
-    // --- CÓDIGO CORREGIDO Y REACTIVO ---
+    // 🔄 Sincronización bidireccional en tiempo real (polling cada 2 segundos)
+    LaunchedEffect(selectedAreaId, tables) {
+        while (true) {
+            val currentIp = ExportManager.getPcIp(context)
+            if (currentIp.isNotBlank() && currentIp != "192.168.x.xx") {
+                ExportManager.fetchTablesFromPc(currentIp) { jsonTables ->
+
+                    // 1. Detectar si la PC alteró la cantidad total de mesas
+                    val pcTableKeys = jsonTables.keys()
+                    var maxTableNumberFromPc = 0
+
+                    while (pcTableKeys.hasNext()) {
+                        val key = pcTableKeys.next()
+                        val num = key.replace("Mesa ", "").replace("Mesa", "").trim().toIntOrNull() ?: 0
+                        if (num > maxTableNumberFromPc) {
+                            maxTableNumberFromPc = num
+                        }
+                    }
+
+                    if (maxTableNumberFromPc > 0 && maxTableNumberFromPc != tables.size) {
+                        onSetTableCount(maxTableNumberFromPc)
+                    }
+
+                    // 2. Sincronizar consumos y estado de ocupación por mesa
+                    tables.forEach { table ->
+                        val prefix = currentArea?.prefix ?: ""
+                        val keyFullName = if (prefix.isNotBlank()) "$prefix${table.number}" else "Mesa ${table.number}"
+                        val keyStandard = "Mesa ${table.number}"
+                        val keySimple = "${table.number}"
+
+                        val activeKey = when {
+                            jsonTables.has(keyFullName) -> keyFullName
+                            jsonTables.has(keyStandard) -> keyStandard
+                            jsonTables.has(keySimple) -> keySimple
+                            else -> null
+                        }
+
+                        if (activeKey != null) {
+                            val tableData = jsonTables.getJSONObject(activeKey)
+                            val pcTotal = tableData.optDouble("total", 0.0)
+                            val itemsArray = tableData.optJSONArray("items")
+                            val pcIsOccupied = itemsArray != null && itemsArray.length() > 0
+
+                            // Actualizar BD local tanto si cambió a ocupada como a desocupada
+                            if (table.isOccupied != pcIsOccupied || Math.abs(table.currentTotal - pcTotal) > 0.01) {
+                                val updatedItems = mutableListOf<Pair<ProductEntity, Int>>()
+
+                                if (pcIsOccupied && itemsArray != null) {
+                                    for (i in 0 until itemsArray.length()) {
+                                        val itemObj = itemsArray.getJSONObject(i)
+                                        val nombre = itemObj.optString("nombre", "")
+                                        val cantidad = itemObj.optInt("cantidad", 0)
+                                        val precio = itemObj.optDouble("precio", 0.0)
+
+                                        if (nombre.isNotBlank() && cantidad > 0) {
+                                            val matchedProduct = products.find { it.name.equals(nombre, ignoreCase = true) }
+                                                ?: ProductEntity(id = 0, category = "General", name = nombre, price = precio)
+                                            updatedItems.add(Pair(matchedProduct, cantidad))
+                                        }
+                                    }
+                                }
+
+                                // Si pcIsOccupied es falso, enviará lista vacía y 0.0 para liberar la mesa
+                                viewModel.saveOrderForTable(table.id, updatedItems, if (pcIsOccupied) pcTotal else 0.0)
+                            }
+                        }
+                    }
+                }
+            }
+            delay(2000)
+        }
+    }
+
+    // --- CÓDIGO REACTIVO DE REPORTES ---
     val pendingPaidItems by viewModel.pendingPaidItems.collectAsState()
 
     if (showEndDayDialog) {
@@ -310,7 +387,16 @@ fun TableDashboardScreen(
             },
             confirmButton = {
                 Button(onClick = {
-                    countInput.toIntOrNull()?.let { onSetTableCount(it) }
+                    countInput.toIntOrNull()?.let { newCount ->
+                        if (newCount > 0) {
+                            onSetTableCount(newCount)
+
+                            val currentIp = ExportManager.getPcIp(context)
+                            if (currentIp.isNotBlank() && currentIp != "192.168.x.xx") {
+                                ExportManager.updateTableCountOnPc(currentIp, newCount)
+                            }
+                        }
+                    }
                     showTableConfigDialog = false
                 }) {
                     Text("Guardar")

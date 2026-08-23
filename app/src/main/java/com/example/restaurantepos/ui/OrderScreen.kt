@@ -1,5 +1,6 @@
 package com.example.restaurantepos.ui
 
+import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,33 +16,38 @@ import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Payment
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.restaurantepos.data.OrderItemEntity
 import com.example.restaurantepos.data.ProductEntity
+import com.example.restaurantepos.data.TableEntity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrderScreen(
-    tableId: Int,
+    table: TableEntity, // <-- Se cambia tableId por la entidad TableEntity
     products: List<ProductEntity>,
     existingOrderItems: List<OrderItemEntity>,
+    waiterName: String = "Camarero",
     onSaveOrder: (List<Pair<ProductEntity, Int>>, Double) -> Unit,
     onPayTable: (List<Pair<ProductEntity, Int>>, Double) -> Unit,
     onBack: () -> Unit
-){
+) {
     val categorySheetState = rememberModalBottomSheetState()
     val receiptSheetState = rememberModalBottomSheetState()
 
@@ -55,13 +61,11 @@ fun OrderScreen(
     var selectedCategory by remember { mutableStateOf("Todas") }
     val cart = remember { mutableStateMapOf<ProductEntity, Int>() }
 
-    // Bandera para asegurar que la carga inicial desde la BD solo ocurra una sola vez
     var isCartInitialized by remember { mutableStateOf(false) }
 
     LaunchedEffect(existingOrderItems, products) {
         if (!isCartInitialized && existingOrderItems.isNotEmpty() && products.isNotEmpty()) {
             cart.clear()
-
             val counts = existingOrderItems.groupingBy { it.productName.trim() }.eachCount()
 
             counts.forEach { (prodName, count) ->
@@ -81,29 +85,79 @@ fun OrderScreen(
     val totalAmount = cart.entries.sumOf { it.key.price * it.value }
     val totalItemsCount = cart.values.sum()
     var isNavigatingBack by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     val handleSave = {
         if (!isNavigatingBack) {
             isNavigatingBack = true
-            onSaveOrder(cart.map { Pair(it.key, it.value) }, totalAmount)
-            onBack()
+
+            scope.launch(Dispatchers.IO) {
+                val currentIp = ExportManager.getPcIp(context)
+                if (currentIp.isNotBlank() && currentIp != "192.168.x.xx") {
+                    val jsonItems = cart.map { (product, qty) ->
+                        ExportManager.ItemOrderRequest(
+                            nombre = product.name,
+                            cantidad = qty,
+                            precio = product.price
+                        )
+                    }
+
+                    // FIX: Enviamos "Mesa ${table.number}" para coincidir con la nomenclatura de la PC
+                    ExportManager.sendOrderJsonToPc(
+                        pcIpAddress = currentIp,
+                        tableName = "Mesa ${table.number}",
+                        waiterName = waiterName,
+                        itemsList = jsonItems
+                    )
+                }
+
+                withContext(Dispatchers.Main) {
+                    onSaveOrder(cart.map { Pair(it.key, it.value) }, totalAmount)
+                    onBack()
+                }
+            }
         }
     }
 
     val handlePay = {
         if (!isNavigatingBack) {
             isNavigatingBack = true
-            onPayTable(cart.map { Pair(it.key, it.value) }, totalAmount)
-            onBack()
+            val itemsList = cart.map { Pair(it.key, it.value) }
+
+            scope.launch(Dispatchers.IO) {
+                val currentIp = ExportManager.getPcIp(context)
+                if (currentIp.isNotBlank() && currentIp != "192.168.x.xx") {
+                    val pdfFile = ExportManager.generatePdfReceipt(
+                        context = context,
+                        tableId = table.number, // FIX: Usar el número visual de la mesa en el reporte/PDF
+                        items = itemsList,
+                        totalAmount = totalAmount,
+                        waiterName = waiterName
+                    )
+
+                    if (pdfFile != null && pdfFile.exists()) {
+                        ExportManager.sendPdfToPc(
+                            pdfFile = pdfFile,
+                            pcIpAddress = currentIp,
+                            tableId = table.number // FIX: Mismo identificador que la PC espera
+                        )
+                    }
+                }
+
+                withContext(Dispatchers.Main) {
+                    onPayTable(itemsList, totalAmount)
+                    onBack()
+                }
+            }
         }
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Comanda • Mesa $tableId", fontWeight = FontWeight.Bold) },
+                title = { Text("Comanda • Mesa ${table.number}", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = handleSave) {
+                    IconButton(onClick = { handleSave() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
                     }
                 }
@@ -269,7 +323,7 @@ fun OrderScreen(
                         .padding(16.dp)
                 ) {
                     Text(
-                        "Factura • Mesa $tableId",
+                        "Factura • Mesa ${table.number}",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -354,9 +408,9 @@ fun OrderScreen(
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Icon(Icons.Default.Save, contentDescription = null)
+                            Icon(Icons.Default.Send, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
-                            Text("Guardar")
+                            Text("Enviar Comanda")
                         }
                         Button(
                             onClick = {

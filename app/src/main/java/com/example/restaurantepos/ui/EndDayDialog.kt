@@ -4,9 +4,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.restaurantepos.data.OrderItemEntity
+import java.util.Locale
 
 @Composable
 fun EndDayDialog(
@@ -14,6 +16,7 @@ fun EndDayDialog(
     onDismiss: () -> Unit,
     onConfirmEndDay: (totalItems: Int, totalRevenue: Double) -> Unit
 ) {
+    val context = LocalContext.current
     val totalItems = pendingItems.size
     val totalRevenue = pendingItems.sumOf { it.price }
 
@@ -37,7 +40,7 @@ fun EndDayDialog(
                 ) {
                     Text("Total Ganancias Recaudadas:")
                     Text(
-                        "$${String.format("%.2f", totalRevenue)}",
+                        "$${String.format(Locale.US, "%.2f", totalRevenue)}",
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -46,7 +49,11 @@ fun EndDayDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onConfirmEndDay(totalItems, totalRevenue) },
+                onClick = {
+                    val csvReport = ExportManager.generateDailySummaryCsv(context, pendingItems, totalRevenue)
+                    ExportManager.shareFile(context, csvReport, "text/csv")
+                    onConfirmEndDay(totalItems, totalRevenue)
+                },
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
             ) {
                 Text("Confirmar y Cerrar Día")

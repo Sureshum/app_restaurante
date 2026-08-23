@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -43,195 +44,217 @@ fun UserSelectionScreen(
     var selectedUser by remember { mutableStateOf<UserEntity?>(null) }
     var enteredPin by remember { mutableStateOf("") }
     var showCreateDialog by remember { mutableStateOf(false) }
+    var showIpDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
-    ) {
-        Column(
+    Scaffold(
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { showCreateDialog = true },
+                icon = { Icon(Icons.Default.Add, contentDescription = "Añadir Usuario") },
+                text = { Text("Nuevo Usuario") },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            )
+        },
+        floatingActionButtonPosition = FabPosition.End
+    ) { innerPadding ->
+        Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(innerPadding),
+            color = MaterialTheme.colorScheme.background
         ) {
-            Row(
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .fillMaxSize()
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = "Seleccionar Usuario",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Button(
-                    onClick = { showCreateDialog = true },
-                    shape = RoundedCornerShape(12.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                // Header con botón de Configuración IP a la derecha
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Nuevo Usuario")
-                }
-            }
+                    Text(
+                        text = "Seleccionar Usuario",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
 
-            Spacer(Modifier.height(8.dp))
-
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 130.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                items(users, key = { it.id }) { user ->
-                    Card(
-                        modifier = Modifier
-                            .height(140.dp)
-                            .clickable { selectedUser = user },
-                        shape = RoundedCornerShape(16.dp),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(12.dp)
-                        ) {
-                            AsyncImage(
-                                model = user.avatarUri.ifEmpty { "https://via.placeholder.com/150" },
-                                contentDescription = user.name,
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .clip(CircleShape),
-                                contentScale = ContentScale.Crop
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            Text(
-                                text = user.name,
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1
-                            )
-                            Text(
-                                text = user.role.name,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
+                    IconButton(onClick = { showIpDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Configurar IP PC",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
-            }
-        }
 
-        selectedUser?.let { user ->
-            AlertDialog(
-                onDismissRequest = {
-                    selectedUser = null
-                    enteredPin = ""
-                },
-                title = {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("PIN de ${user.name}", fontWeight = FontWeight.Bold)
-                        IconButton(
-                            onClick = {
-                                onDeleteUser(
-                                    user,
-                                    enteredPin,
-                                    {
-                                        Toast.makeText(context, "Usuario eliminado", Toast.LENGTH_SHORT).show()
-                                        selectedUser = null
-                                        enteredPin = ""
-                                    },
-                                    {
-                                        Toast.makeText(context, "PIN incorrecto o sin privilegios", Toast.LENGTH_SHORT).show()
-                                        enteredPin = ""
-                                    }
+                Spacer(Modifier.height(8.dp))
+
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 130.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(users, key = { it.id }) { user ->
+                        Card(
+                            modifier = Modifier
+                                .height(140.dp)
+                                .clickable { selectedUser = user },
+                            shape = RoundedCornerShape(16.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(12.dp)
+                            ) {
+                                AsyncImage(
+                                    model = user.avatarUri.ifEmpty { "https://via.placeholder.com/150" },
+                                    contentDescription = user.name,
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .clip(CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                                Spacer(Modifier.height(10.dp))
+                                Text(
+                                    text = user.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1
+                                )
+                                Text(
+                                    text = user.role.name,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
-                        ) {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = "Eliminar usuario",
-                                tint = MaterialTheme.colorScheme.error
-                            )
                         }
                     }
-                },
-                text = {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = enteredPin.padStart(4, '•'),
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(Modifier.height(20.dp))
+                }
+            }
 
-                        val buttons = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "CLR", "0", "OK")
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(3),
-                            modifier = Modifier.width(240.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+            selectedUser?.let { user ->
+                AlertDialog(
+                    onDismissRequest = {
+                        selectedUser = null
+                        enteredPin = ""
+                    },
+                    title = {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            items(buttons) { btn ->
-                                Button(
-                                    onClick = {
-                                        when (btn) {
-                                            "CLR" -> enteredPin = ""
-                                            "OK" -> {
-                                                onAuthenticate(
-                                                    user,
-                                                    enteredPin,
-                                                    {
-                                                        selectedUser = null
-                                                        enteredPin = ""
-                                                    },
-                                                    {
-                                                        Toast.makeText(context, "PIN Incorrecto", Toast.LENGTH_SHORT).show()
-                                                        enteredPin = ""
-                                                    }
-                                                )
-                                            }
-                                            else -> if (enteredPin.length < 4) enteredPin += btn
+                            Text("PIN de ${user.name}", fontWeight = FontWeight.Bold)
+                            IconButton(
+                                onClick = {
+                                    onDeleteUser(
+                                        user,
+                                        enteredPin,
+                                        {
+                                            Toast.makeText(context, "Usuario eliminado", Toast.LENGTH_SHORT).show()
+                                            selectedUser = null
+                                            enteredPin = ""
+                                        },
+                                        {
+                                            Toast.makeText(context, "PIN incorrecto o sin privilegios", Toast.LENGTH_SHORT).show()
+                                            enteredPin = ""
                                         }
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.height(48.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (btn == "OK") MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.secondaryContainer,
-                                        contentColor = if (btn == "OK") MaterialTheme.colorScheme.onPrimary
-                                        else MaterialTheme.colorScheme.onSecondaryContainer
                                     )
-                                ) {
-                                    Text(btn, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                }
+                            ) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Eliminar usuario",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    },
+                    text = {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = enteredPin.padStart(4, '•'),
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.height(20.dp))
+
+                            val buttons = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "CLR", "0", "OK")
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(3),
+                                modifier = Modifier.width(240.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(buttons) { btn ->
+                                    Button(
+                                        onClick = {
+                                            when (btn) {
+                                                "CLR" -> enteredPin = ""
+                                                "OK" -> {
+                                                    onAuthenticate(
+                                                        user,
+                                                        enteredPin,
+                                                        {
+                                                            selectedUser = null
+                                                            enteredPin = ""
+                                                        },
+                                                        {
+                                                            Toast.makeText(context, "PIN Incorrecto", Toast.LENGTH_SHORT).show()
+                                                            enteredPin = ""
+                                                        }
+                                                    )
+                                                }
+                                                else -> if (enteredPin.length < 4) enteredPin += btn
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.height(48.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (btn == "OK") MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.secondaryContainer,
+                                            contentColor = if (btn == "OK") MaterialTheme.colorScheme.onPrimary
+                                            else MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                    ) {
+                                        Text(btn, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                    }
                                 }
                             }
                         }
-                    }
-                },
-                confirmButton = {}
-            )
-        }
+                    },
+                    confirmButton = {}
+                )
+            }
 
-        if (showCreateDialog) {
-            CreateUserDialog(
-                onDismiss = { showCreateDialog = false },
-                onUserCreated = onCreateUser
-            )
+            if (showCreateDialog) {
+                CreateUserDialog(
+                    onDismiss = { showCreateDialog = false },
+                    onUserCreated = onCreateUser
+                )
+            }
+
+            if (showIpDialog) {
+                ConfigIpDialog(
+                    onDismiss = { showIpDialog = false }
+                )
+            }
         }
     }
 }

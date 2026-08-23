@@ -189,25 +189,33 @@ fun RestaurantAppNavHost(viewModel: PosViewModel) {
             arguments = listOf(navArgument("tableId") { type = NavType.IntType })
         ) { backStackEntry ->
             val tableId = backStackEntry.arguments?.getInt("tableId") ?: 0
+            val tables by viewModel.currentTables.collectAsState()
             val products by viewModel.products.collectAsState()
             val orderItems by viewModel.getOrderItemsForTable(tableId)
                 .collectAsState(initial = emptyList())
 
-            OrderScreen(
-                tableId = tableId,
-                products = products,
-                existingOrderItems = orderItems,
-                onSaveOrder = { items, total ->
-                    viewModel.saveOrderForTable(tableId, items, total)
-                },
-                // CAMBIO AQUÍ: Recibimos las variables items y total
-                onPayTable = { items, total ->
-                    viewModel.payTableDirectly(tableId, items, total)
-                },
-                onBack = {
-                    navController.safePopBackStack()
-                }
-            )
+            val targetTable = tables.find { it.id == tableId }
+            val currentWaiterName = session?.userName ?: "Camarero"
+
+            if (targetTable != null) {
+                OrderScreen(
+                    table = targetTable,
+                    products = products,
+                    existingOrderItems = orderItems,
+                    waiterName = currentWaiterName,
+                    onSaveOrder = { items, total ->
+                        viewModel.saveOrderForTable(targetTable.id, items, total)
+                    },
+                    onPayTable = { items, total ->
+                        viewModel.payTableDirectly(targetTable.id, items, total)
+                    },
+                    onBack = {
+                        navController.safePopBackStack()
+                    }
+                )
+            } else {
+                navController.safePopBackStack()
+            }
         }
     }
 }

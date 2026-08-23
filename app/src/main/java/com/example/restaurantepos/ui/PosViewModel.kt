@@ -1,7 +1,6 @@
 package com.example.restaurantepos.ui
 
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.restaurantepos.data.AreaEntity
 import com.example.restaurantepos.data.DailyReportEntity
@@ -17,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -32,7 +32,6 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
     val products: StateFlow<List<ProductEntity>> = dao.getAllProducts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Flujo en tiempo real de todos los productos pagados en el día (tableId = -1)
     val pendingPaidItems: StateFlow<List<OrderItemEntity>> = dao.getAllPaidItemsFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -47,10 +46,10 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
-            areas.collect { areaList ->
-                if (_selectedAreaId.value == null && areaList.isNotEmpty()) {
-                    selectArea(areaList.first().id)
-                }
+            // CORRECCIÓN: Usar .first() en lugar de un collect continuo para evitar restablecer el área y las mesas en bucle
+            val areaList = areas.first()
+            if (_selectedAreaId.value == null && areaList.isNotEmpty()) {
+                selectArea(areaList.first().id)
             }
         }
     }
@@ -220,26 +219,13 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
 
     fun payTableDirectly(tableId: Int, items: List<Pair<ProductEntity, Int>>, total: Double) {
         viewModelScope.launch(Dispatchers.IO) {
-            if (items.isNotEmpty()) {
-                for ((product, qty) in items) {
-                    repeat(qty) {
-                        dao.insertOrderItem(
-                            OrderItemEntity(
-                                tableId = -1, // Se guardan como PAGADOS en la BD
-                                productName = product.name.trim(),
-                                price = product.price,
-                                courseGroup = "General"
-                            )
-                        )
-                    }
-                }
-            } else {
-                // Si la comanda ya estaba guardada en la mesa
-                dao.markOrderItemsAsPaid(tableId)
-            }
+            // 1. Marcar los ítems existentes como pagados para el reporte de cierre diario
+            dao.markOrderItemsAsPaid(tableId)
 
-            // Limpia la comanda de la mesa y la desocupa
+            // 2. Limpiar los ítems activos de la mesa
             dao.clearOrderItemsForTable(tableId)
+
+            // 3. Liberar la mesa (poner en disponible)
             dao.updateTableStatus(tableId, total = 0.0, isOccupied = false)
         }
     }
