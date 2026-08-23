@@ -168,6 +168,15 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
         }
     }
 
+    fun deleteArea(area: AreaEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            dao.deleteArea(area)
+            if (_selectedAreaId.value == area.id) {
+                _selectedAreaId.value = areas.value.firstOrNull { it.id != area.id }?.id
+            }
+        }
+    }
+
     fun payTable(tableId: Int) {
         viewModelScope.launch(Dispatchers.IO) {
             dao.clearOrderItemsForTable(tableId)

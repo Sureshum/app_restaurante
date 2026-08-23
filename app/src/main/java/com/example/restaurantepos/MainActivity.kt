@@ -10,7 +10,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -24,9 +29,19 @@ import com.example.restaurantepos.ui.ProductManagementScreen
 import com.example.restaurantepos.ui.TableDashboardScreen
 import com.example.restaurantepos.ui.UserSelectionScreen
 
+// Extensión para prevenir navegaciones dobles rápidas que causan pantallas en blanco
+fun NavController.safePopBackStack() {
+    if (currentBackStackEntry?.lifecycle?.currentState == Lifecycle.State.RESUMED) {
+        popBackStack()
+    }
+}
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Ocultar barra de botones del sistema de forma segura
+        hideSystemUI()
 
         val database = AppDatabase.getDatabase(applicationContext)
         val dao = database.posDao()
@@ -45,6 +60,20 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            hideSystemUI()
+        }
+    }
+
+    private fun hideSystemUI() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller.hide(WindowInsetsCompat.Type.systemBars())
     }
 }
 
@@ -94,10 +123,19 @@ fun RestaurantAppNavHost(viewModel: PosViewModel) {
                 onAddTable = { viewModel.addTable() },
                 onRemoveTable = { viewModel.removeTable() },
                 onSetTableCount = { count -> viewModel.setTableCount(count) },
-                onTableClick = { tableId -> navController.navigate("order_screen/$tableId") },
+                onTableClick = { tableId ->
+                    if (navController.currentBackStackEntry?.lifecycle?.currentState == Lifecycle.State.RESUMED) {
+                        navController.navigate("order_screen/$tableId")
+                    }
+                },
                 onCreateArea = { name, prefix -> viewModel.createArea(name, prefix) },
+                onDeleteArea = { area -> viewModel.deleteArea(area) },
                 onCreateProduct = { cat, name, price -> viewModel.createProduct(cat, name, price) },
-                onOpenSystemMenu = { navController.navigate("product_management") },
+                onOpenSystemMenu = {
+                    if (navController.currentBackStackEntry?.lifecycle?.currentState == Lifecycle.State.RESUMED) {
+                        navController.navigate("product_management")
+                    }
+                },
                 onLogout = {
                     viewModel.logout()
                     navController.navigate("login") {
@@ -111,7 +149,7 @@ fun RestaurantAppNavHost(viewModel: PosViewModel) {
             val products by viewModel.products.collectAsState()
             ProductManagementScreen(
                 products = products,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.safePopBackStack() }
             )
         }
 
@@ -134,7 +172,7 @@ fun RestaurantAppNavHost(viewModel: PosViewModel) {
                     viewModel.payTable(tableId)
                 },
                 onBack = {
-                    navController.popBackStack()
+                    navController.safePopBackStack()
                 }
             )
         }

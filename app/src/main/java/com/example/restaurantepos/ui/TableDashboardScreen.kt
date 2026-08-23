@@ -8,18 +8,26 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddLocation
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material.icons.filled.RestaurantMenu
+import androidx.compose.material.icons.filled.TableBar
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.restaurantepos.data.AreaEntity
 import com.example.restaurantepos.data.ProductEntity
 import com.example.restaurantepos.data.TableEntity
 import java.util.Locale
+
+val GreenAvailable = Color(0xFF2ECC71)
+val OnGreenAvailable = Color.White
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -35,12 +43,19 @@ fun TableDashboardScreen(
     onSetTableCount: (Int) -> Unit,
     onTableClick: (Int) -> Unit,
     onCreateArea: (String, String) -> Unit,
+    onDeleteArea: (AreaEntity) -> Unit, // <-- NUEVO PARÁMETRO
     onCreateProduct: (String, String, Double) -> Unit,
     onOpenSystemMenu: () -> Unit,
     onLogout: () -> Unit
 ) {
     var showTableConfigDialog by remember { mutableStateOf(false) }
     var showCreateProductDialog by remember { mutableStateOf(false) }
+    var showCreateAreaDialog by remember { mutableStateOf(false) }
+    var showDeleteAreaDialog by remember { mutableStateOf(false) }
+
+    val currentArea = remember(areas, selectedAreaId) {
+        areas.find { it.id == selectedAreaId }
+    }
 
     LaunchedEffect(areas) {
         if (selectedAreaId == null && areas.isNotEmpty()) {
@@ -89,27 +104,54 @@ fun TableDashboardScreen(
                 .padding(paddingValues)
                 .padding(16.dp)
         ) {
-            if (areas.isNotEmpty()) {
-                val selectedIndex = areas.indexOfFirst { it.id == selectedAreaId }.coerceAtLeast(0)
-                ScrollableTabRow(
-                    selectedTabIndex = selectedIndex,
-                    edgePadding = 0.dp
-                ) {
-                    areas.forEach { area ->
-                        Tab(
-                            selected = area.id == selectedAreaId,
-                            onClick = { onSelectArea(area.id) },
-                            text = { Text(area.name, fontWeight = FontWeight.Bold) }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                if (areas.isNotEmpty()) {
+                    val selectedIndex = areas.indexOfFirst { it.id == selectedAreaId }.coerceAtLeast(0)
+                    ScrollableTabRow(
+                        selectedTabIndex = selectedIndex,
+                        edgePadding = 0.dp,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        areas.forEach { area ->
+                            Tab(
+                                selected = area.id == selectedAreaId,
+                                onClick = { onSelectArea(area.id) },
+                                text = { Text(area.name, fontWeight = FontWeight.Bold) }
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        text = "No hay áreas disponibles",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                }
+
+                // Botones para Eliminar (-) y Agregar (+) Sala
+                Row {
+                    if (currentArea != null) {
+                        IconButton(onClick = { showDeleteAreaDialog = true }) {
+                            Icon(
+                                Icons.Default.RemoveCircleOutline,
+                                contentDescription = "Eliminar Sala Actual",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                    IconButton(onClick = { showCreateAreaDialog = true }) {
+                        Icon(
+                            Icons.Default.AddLocation,
+                            contentDescription = "Agregar Sala",
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
-            } else {
-                Text(
-                    text = "No hay áreas disponibles",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
             }
 
             Spacer(Modifier.height(16.dp))
@@ -122,16 +164,20 @@ fun TableDashboardScreen(
             ) {
                 items(tables, key = { it.id }) { table ->
                     val formattedTotal = String.format(Locale.US, "%.2f", table.currentTotal)
+                    val cardBgColor = if (table.isOccupied) MaterialTheme.colorScheme.errorContainer else GreenAvailable
+                    val contentColor = if (table.isOccupied) MaterialTheme.colorScheme.onErrorContainer else OnGreenAvailable
+
+                    // Concatenamos el prefijo del área con el número de la mesa
+                    val prefix = currentArea?.prefix ?: ""
+                    val tableName = if (prefix.isNotBlank()) "$prefix${table.number}" else "Mesa ${table.number}"
+
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(95.dp)
+                            .height(105.dp)
                             .clickable { onTableClick(table.id) },
                         shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (table.isOccupied) MaterialTheme.colorScheme.errorContainer
-                            else MaterialTheme.colorScheme.surfaceVariant
-                        )
+                        colors = CardDefaults.cardColors(containerColor = cardBgColor)
                     ) {
                         Column(
                             modifier = Modifier
@@ -140,23 +186,97 @@ fun TableDashboardScreen(
                             verticalArrangement = Arrangement.SpaceBetween,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
+                            Icon(
+                                Icons.Default.TableBar,
+                                contentDescription = null,
+                                tint = contentColor,
+                                modifier = Modifier.size(24.dp)
+                            )
                             Text(
-                                text = "Mesa ${table.number}",
+                                text = tableName,
                                 fontWeight = FontWeight.Bold,
-                                style = MaterialTheme.typography.titleSmall
+                                style = MaterialTheme.typography.titleSmall,
+                                color = contentColor
                             )
                             Text(
                                 text = if (table.isOccupied) "Ocupado\n$$formattedTotal" else "Disponible",
                                 style = MaterialTheme.typography.bodySmall,
-                                fontWeight = if (table.isOccupied) FontWeight.Bold else FontWeight.Normal,
-                                color = if (table.isOccupied) MaterialTheme.colorScheme.onErrorContainer
-                                else MaterialTheme.colorScheme.outline
+                                fontWeight = FontWeight.Bold,
+                                color = contentColor
                             )
                         }
                     }
                 }
             }
         }
+    }
+
+    // Diálogo para eliminar sala
+    if (showDeleteAreaDialog && currentArea != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteAreaDialog = false },
+            title = { Text("Eliminar Sala", fontWeight = FontWeight.Bold) },
+            text = { Text("¿Estás seguro de que deseas eliminar la sala '${currentArea.name}' y sus mesas?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteArea(currentArea)
+                        showDeleteAreaDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Eliminar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteAreaDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    // Diálogo para crear Nueva Sala
+    if (showCreateAreaDialog) {
+        var areaName by remember { mutableStateOf("") }
+        var areaPrefix by remember { mutableStateOf("") }
+
+        AlertDialog(
+            onDismissRequest = { showCreateAreaDialog = false },
+            title = { Text("Agregar Nueva Sala", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = areaName,
+                        onValueChange = { areaName = it },
+                        label = { Text("Nombre de la sala (ej. Terraza)") },
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = areaPrefix,
+                        onValueChange = { areaPrefix = it },
+                        label = { Text("Prefijo (ej. T)") },
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (areaName.isNotBlank()) {
+                        val prefix = if (areaPrefix.isBlank()) "M" else areaPrefix
+                        onCreateArea(areaName, prefix)
+                        showCreateAreaDialog = false
+                    }
+                }) {
+                    Text("Crear")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateAreaDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 
     if (showTableConfigDialog) {
