@@ -9,8 +9,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Payment
 import androidx.compose.material.icons.filled.Receipt
@@ -39,9 +39,9 @@ fun OrderScreen(
     products: List<ProductEntity>,
     existingOrderItems: List<OrderItemEntity>,
     onSaveOrder: (List<Pair<ProductEntity, Int>>, Double) -> Unit,
-    onPayTable: () -> Unit,
+    onPayTable: (List<Pair<ProductEntity, Int>>, Double) -> Unit,
     onBack: () -> Unit
-) {
+){
     val categorySheetState = rememberModalBottomSheetState()
     val receiptSheetState = rememberModalBottomSheetState()
 
@@ -49,17 +49,27 @@ fun OrderScreen(
     var showReceiptSheet by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    val categories = remember(products) { listOf("Todas") + products.map { it.category.trim() }.distinctBy { it.uppercase() } }
+    val categories = remember(products) {
+        listOf("Todas") + products.map { it.category.trim() }.distinctBy { it.uppercase() }
+    }
     var selectedCategory by remember { mutableStateOf("Todas") }
     val cart = remember { mutableStateMapOf<ProductEntity, Int>() }
 
+    // Bandera para asegurar que la carga inicial desde la BD solo ocurra una sola vez
+    var isCartInitialized by remember { mutableStateOf(false) }
+
     LaunchedEffect(existingOrderItems, products) {
-        if (existingOrderItems.isNotEmpty() && products.isNotEmpty()) {
+        if (!isCartInitialized && existingOrderItems.isNotEmpty() && products.isNotEmpty()) {
             cart.clear()
-            val counts = existingOrderItems.groupingBy { it.productName }.eachCount()
+
+            val counts = existingOrderItems.groupingBy { it.productName.trim() }.eachCount()
+
             counts.forEach { (prodName, count) ->
-                products.find { it.name == prodName }?.let { prod -> cart[prod] = count }
+                products.find { it.name.trim().equals(prodName, ignoreCase = true) }?.let { prod ->
+                    cart[prod] = count
+                }
             }
+            isCartInitialized = true
         }
     }
 
@@ -80,12 +90,22 @@ fun OrderScreen(
         }
     }
 
+    val handlePay = {
+        if (!isNavigatingBack) {
+            isNavigatingBack = true
+            onPayTable(cart.map { Pair(it.key, it.value) }, totalAmount)
+            onBack()
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Comanda • Mesa $tableId", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = handleSave) { Icon(Icons.Default.ArrowBack, "Regresar") }
+                    IconButton(onClick = handleSave) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
+                    }
                 }
             )
         },
@@ -97,7 +117,9 @@ fun OrderScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -105,7 +127,7 @@ fun OrderScreen(
                         onClick = { showCategorySheet = true },
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Icon(Icons.Default.Category, null)
+                        Icon(Icons.Default.Category, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text("Categoría: $selectedCategory", fontWeight = FontWeight.SemiBold)
                     }
@@ -115,15 +137,25 @@ fun OrderScreen(
                     ) {
                         BadgedBox(
                             badge = { if (totalItemsCount > 0) Badge { Text("$totalItemsCount") } }
-                        ) { Icon(Icons.Default.Receipt, "Factura") }
+                        ) {
+                            Icon(Icons.Default.Receipt, contentDescription = "Factura")
+                        }
                         Spacer(Modifier.width(8.dp))
-                        Text("$${String.format(Locale.US, "%.2f", totalAmount)}", fontWeight = FontWeight.Bold)
+                        Text(
+                            "$$${String.format(Locale.US, "%.2f", totalAmount)}",
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
         }
     ) { paddingValues ->
-        Column(modifier = Modifier.fillMaxSize().padding(paddingValues).padding(8.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(8.dp)
+        ) {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 140.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -142,20 +174,46 @@ fun OrderScreen(
                                 AsyncImage(
                                     model = File(product.imageUri),
                                     contentDescription = product.name,
-                                    modifier = Modifier.fillMaxWidth().height(90.dp).clip(RoundedCornerShape(8.dp)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(90.dp)
+                                        .clip(RoundedCornerShape(8.dp)),
                                     contentScale = ContentScale.Crop
                                 )
                                 Spacer(Modifier.height(6.dp))
                             } else {
                                 Spacer(Modifier.height(16.dp))
                             }
-                            Text(product.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                product.name,
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                             Spacer(Modifier.height(2.dp))
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Text("$${String.format(Locale.US, "%.2f", product.price)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.SemiBold)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "$$${String.format(Locale.US, "%.2f", product.price)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
                                 if (currentQty > 0) {
-                                    Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(4.dp)) {
-                                        Text("x$currentQty", modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            "x$currentQty",
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                     }
                                 }
                             }
@@ -166,19 +224,32 @@ fun OrderScreen(
         }
 
         if (showCategorySheet) {
-            ModalBottomSheet(onDismissRequest = { showCategorySheet = false }, sheetState = categorySheetState) {
-                Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                    Text("Seleccionar Categoría", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            ModalBottomSheet(
+                onDismissRequest = { showCategorySheet = false },
+                sheetState = categorySheetState
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Text(
+                        "Seleccionar Categoría",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     LazyColumn(modifier = Modifier.fillMaxWidth()) {
                         items(categories) { category ->
                             NavigationDrawerItem(
-                                icon = { Icon(Icons.Default.Category, null) },
+                                icon = { Icon(Icons.Default.Category, contentDescription = null) },
                                 label = { Text(category, fontWeight = FontWeight.SemiBold) },
                                 selected = category == selectedCategory,
                                 onClick = {
                                     selectedCategory = category
-                                    scope.launch { categorySheetState.hide() }.invokeOnCompletion { showCategorySheet = false }
+                                    scope.launch { categorySheetState.hide() }.invokeOnCompletion {
+                                        showCategorySheet = false
+                                    }
                                 }
                             )
                         }
@@ -188,43 +259,119 @@ fun OrderScreen(
         }
 
         if (showReceiptSheet) {
-            ModalBottomSheet(onDismissRequest = { showReceiptSheet = false }, sheetState = receiptSheetState) {
-                Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                    Text("Factura • Mesa $tableId", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            ModalBottomSheet(
+                onDismissRequest = { showReceiptSheet = false },
+                sheetState = receiptSheetState
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Text(
+                        "Factura • Mesa $tableId",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                    LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp)) {
-                        items(cart.entries.toList()) { (prod, qty) ->
-                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 240.dp)
+                    ) {
+                        items(
+                            items = cart.entries.toList(),
+                            key = { it.key.id }
+                        ) { (prod, qty) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(prod.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                                    Text("$${String.format(Locale.US, "%.2f", prod.price)} c/u", style = MaterialTheme.typography.bodySmall)
+                                    Text(
+                                        prod.name,
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Text(
+                                        "$$${String.format(Locale.US, "%.2f", prod.price)} c/u",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    IconButton(onClick = { if (qty > 1) cart[prod] = qty - 1 else cart.remove(prod) }) { Icon(Icons.Default.Remove, null) }
-                                    Text("$qty", fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp))
-                                    IconButton(onClick = { cart[prod] = qty + 1 }) { Icon(Icons.Default.Add, null) }
+                                    IconButton(onClick = {
+                                        if (qty > 1) {
+                                            cart[prod] = qty - 1
+                                        } else {
+                                            cart.remove(prod)
+                                        }
+                                    }) {
+                                        Icon(Icons.Default.Remove, contentDescription = "Restar")
+                                    }
+                                    Text(
+                                        "$qty",
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 4.dp)
+                                    )
+                                    IconButton(onClick = {
+                                        cart[prod] = qty + 1
+                                    }) {
+                                        Icon(Icons.Default.Add, contentDescription = "Sumar")
+                                    }
                                 }
                             }
                         }
                     }
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text("Total:", style = MaterialTheme.typography.titleMedium)
-                        Text("$${String.format(Locale.US, "%.2f", totalAmount)}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text(
+                            "$$${String.format(Locale.US, "%.2f", totalAmount)}",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
                     Spacer(Modifier.height(16.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                         OutlinedButton(
-                            onClick = { scope.launch { receiptSheetState.hide() }.invokeOnCompletion { showReceiptSheet = false; handleSave() } },
-                            modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)
+                            onClick = {
+                                scope.launch { receiptSheetState.hide() }.invokeOnCompletion {
+                                    showReceiptSheet = false
+                                    handleSave()
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
                         ) {
-                            Icon(Icons.Default.Save, null); Spacer(Modifier.width(6.dp)); Text("Guardar")
+                            Icon(Icons.Default.Save, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Guardar")
                         }
                         Button(
-                            onClick = { scope.launch { receiptSheetState.hide() }.invokeOnCompletion { showReceiptSheet = false; if (!isNavigatingBack) { isNavigatingBack = true; onPayTable(); onBack() } } },
-                            modifier = Modifier.weight(1f), enabled = totalAmount > 0, shape = RoundedCornerShape(8.dp)
+                            onClick = {
+                                scope.launch { receiptSheetState.hide() }.invokeOnCompletion {
+                                    showReceiptSheet = false
+                                    handlePay()
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            enabled = totalAmount > 0,
+                            shape = RoundedCornerShape(8.dp)
                         ) {
-                            Icon(Icons.Default.Payment, null); Spacer(Modifier.width(6.dp)); Text("Pagar Mesa")
+                            Icon(Icons.Default.Payment, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Pagar Mesa")
                         }
                     }
                 }

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.restaurantepos.data.AreaEntity
+import com.example.restaurantepos.data.DailyReportEntity
 import com.example.restaurantepos.data.OrderItemEntity
 import com.example.restaurantepos.data.PosDao
 import com.example.restaurantepos.data.ProductEntity
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class PosViewModel(private val dao: PosDao) : ViewModel() {
 
@@ -28,6 +30,10 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val products: StateFlow<List<ProductEntity>> = dao.getAllProducts()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Flujo en tiempo real de todos los productos pagados en el día (tableId = -1)
+    val pendingPaidItems: StateFlow<List<OrderItemEntity>> = dao.getAllPaidItemsFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _selectedAreaId = MutableStateFlow<Int?>(null)
@@ -65,7 +71,14 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
     fun createUser(name: String, pin: String, avatarUri: String, role: UserRole) {
         viewModelScope.launch(Dispatchers.IO) {
             val hashedPin = SecurityUtils.hashPin(pin)
-            dao.insertUser(UserEntity(name = name, pinHash = hashedPin, avatarUri = avatarUri, role = role))
+            dao.insertUser(
+                UserEntity(
+                    name = name,
+                    pinHash = hashedPin,
+                    avatarUri = avatarUri,
+                    role = role
+                )
+            )
         }
     }
 
@@ -99,7 +112,14 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
         val areaId = _selectedAreaId.value ?: return
         viewModelScope.launch(Dispatchers.IO) {
             val count = _currentTables.value.size
-            dao.insertTable(TableEntity(areaId = areaId, number = count + 1, currentTotal = 0.0, isOccupied = false))
+            dao.insertTable(
+                TableEntity(
+                    areaId = areaId,
+                    number = count + 1,
+                    currentTotal = 0.0,
+                    isOccupied = false
+                )
+            )
         }
     }
 
@@ -119,7 +139,14 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
             val currentCount = _currentTables.value.size
             if (count > currentCount) {
                 for (i in (currentCount + 1)..count) {
-                    dao.insertTable(TableEntity(areaId = areaId, number = i, currentTotal = 0.0, isOccupied = false))
+                    dao.insertTable(
+                        TableEntity(
+                            areaId = areaId,
+                            number = i,
+                            currentTotal = 0.0,
+                            isOccupied = false
+                        )
+                    )
                 }
             } else if (count < currentCount) {
                 val tablesToRemove = _currentTables.value.takeLast(currentCount - count)
@@ -134,51 +161,22 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
         }
     }
 
-    fun createProduct(category: String, name: String, price: Double) {
+    fun createProduct(category: String, name: String, price: Double, imageUri: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
-            dao.insertProduct(ProductEntity(category = category, name = name, price = price))
+            dao.insertProduct(
+                ProductEntity(
+                    category = category,
+                    name = name,
+                    price = price,
+                    imageUri = imageUri
+                )
+            )
         }
     }
 
-    fun getOrderItemsForTable(tableId: Int): StateFlow<List<OrderItemEntity>> {
-        return dao.getOrderItemsForTable(tableId)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    }
-
-    fun saveOrderForTable(tableId: Int, items: List<Pair<ProductEntity, Int>>, total: Double) {
-        viewModelScope.launch(Dispatchers.IO) {
-            dao.clearOrderItemsForTable(tableId)
-            if (items.isNotEmpty() && total > 0.0) {
-                for ((product, qty) in items) {
-                    repeat(qty) {
-                        dao.insertOrderItem(
-                            OrderItemEntity(
-                                tableId = tableId,
-                                productName = product.name,
-                                price = product.price,
-                                courseGroup = "General"
-                            )
-                        )
-                    }
-                }
-                dao.updateTableStatus(tableId, total, isOccupied = true)
-            } else {
-                dao.updateTableStatus(tableId, 0.0, isOccupied = false)
-            }
-        }
-    }
-
-    // Agrega esta función para actualizar productos existentes
     fun updateProduct(product: ProductEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             dao.updateProduct(product)
-        }
-    }
-
-    // Actualiza createProduct para aceptar imageUri
-    fun createProduct(category: String, name: String, price: Double, imageUri: String? = null) {
-        viewModelScope.launch(Dispatchers.IO) {
-            dao.insertProduct(ProductEntity(category = category, name = name, price = price, imageUri = imageUri))
         }
     }
 
@@ -191,20 +189,73 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
         }
     }
 
-    fun payTable(tableId: Int) {
+    fun getOrderItemsForTable(tableId: Int): StateFlow<List<OrderItemEntity>> {
+        return dao.getOrderItemsForTable(tableId)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
+
+    fun saveOrderForTable(tableId: Int, items: List<Pair<ProductEntity, Int>>, total: Double) {
         viewModelScope.launch(Dispatchers.IO) {
             dao.clearOrderItemsForTable(tableId)
-            dao.updateTableStatus(tableId, 0.0, isOccupied = false)
+
+            if (items.isNotEmpty() && total > 0.0) {
+                for ((product, qty) in items) {
+                    repeat(qty) {
+                        dao.insertOrderItem(
+                            OrderItemEntity(
+                                tableId = tableId,
+                                productName = product.name.trim(),
+                                price = product.price,
+                                courseGroup = "General"
+                            )
+                        )
+                    }
+                }
+                dao.updateTableStatus(tableId, total = total, isOccupied = true)
+            } else {
+                dao.updateTableStatus(tableId, total = 0.0, isOccupied = false)
+            }
         }
     }
-}
 
-class PosViewModelFactory(private val dao: PosDao) : ViewModelProvider.Factory {
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        if (modelClass.isAssignableFrom(PosViewModel::class.java)) {
-            @Suppress("UNCHECKED_CAST")
-            return PosViewModel(dao) as T
+    fun payTableDirectly(tableId: Int, items: List<Pair<ProductEntity, Int>>, total: Double) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (items.isNotEmpty()) {
+                for ((product, qty) in items) {
+                    repeat(qty) {
+                        dao.insertOrderItem(
+                            OrderItemEntity(
+                                tableId = -1, // Se guardan como PAGADOS en la BD
+                                productName = product.name.trim(),
+                                price = product.price,
+                                courseGroup = "General"
+                            )
+                        )
+                    }
+                }
+            } else {
+                // Si la comanda ya estaba guardada en la mesa
+                dao.markOrderItemsAsPaid(tableId)
+            }
+
+            // Limpia la comanda de la mesa y la desocupa
+            dao.clearOrderItemsForTable(tableId)
+            dao.updateTableStatus(tableId, total = 0.0, isOccupied = false)
         }
-        throw IllegalArgumentException("Unknown ViewModel class")
+    }
+
+    fun closeDayAndSaveReport(totalItems: Int, totalRevenue: Double, onFinished: () -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            dao.insertDailyReport(
+                DailyReportEntity(
+                    totalSalesCount = totalItems,
+                    totalRevenue = totalRevenue
+                )
+            )
+            dao.clearAllPaidOrderItems()
+            withContext(Dispatchers.Main) {
+                onFinished()
+            }
+        }
     }
 }

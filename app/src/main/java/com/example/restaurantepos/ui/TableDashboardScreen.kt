@@ -7,9 +7,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddLocation
-import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material.icons.filled.RestaurantMenu
@@ -22,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.restaurantepos.data.AreaEntity
+import com.example.restaurantepos.data.OrderItemEntity
 import com.example.restaurantepos.data.ProductEntity
 import com.example.restaurantepos.data.TableEntity
 import java.util.Locale
@@ -32,6 +32,7 @@ val OnGreenAvailable = Color.White
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TableDashboardScreen(
+    viewModel: PosViewModel,
     session: ActiveSession?,
     areas: List<AreaEntity>,
     selectedAreaId: Int?,
@@ -43,7 +44,7 @@ fun TableDashboardScreen(
     onSetTableCount: (Int) -> Unit,
     onTableClick: (Int) -> Unit,
     onCreateArea: (String, String) -> Unit,
-    onDeleteArea: (AreaEntity) -> Unit, // <-- NUEVO PARÁMETRO
+    onDeleteArea: (AreaEntity) -> Unit,
     onCreateProduct: (String, String, Double) -> Unit,
     onOpenSystemMenu: () -> Unit,
     onLogout: () -> Unit
@@ -52,6 +53,7 @@ fun TableDashboardScreen(
     var showCreateProductDialog by remember { mutableStateOf(false) }
     var showCreateAreaDialog by remember { mutableStateOf(false) }
     var showDeleteAreaDialog by remember { mutableStateOf(false) }
+    var showEndDayDialog by remember { mutableStateOf(false) }
 
     val currentArea = remember(areas, selectedAreaId) {
         areas.find { it.id == selectedAreaId }
@@ -63,11 +65,32 @@ fun TableDashboardScreen(
         }
     }
 
+    // --- CÓDIGO CORREGIDO Y REACTIVO ---
+    val pendingPaidItems by viewModel.pendingPaidItems.collectAsState()
+
+    if (showEndDayDialog) {
+        EndDayDialog(
+            pendingItems = pendingPaidItems,
+            onDismiss = { showEndDayDialog = false },
+            onConfirmEndDay = { totalItems, totalRevenue ->
+                viewModel.closeDayAndSaveReport(totalItems, totalRevenue) {
+                    showEndDayDialog = false
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Mesas • ${session?.userName ?: "Usuario"}", fontWeight = FontWeight.Bold) },
                 actions = {
+                    IconButton(onClick = { showEndDayDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Assessment,
+                            contentDescription = "Cierre de Día"
+                        )
+                    }
                     IconButton(onClick = onOpenSystemMenu) {
                         Icon(Icons.Default.RestaurantMenu, contentDescription = "Menú del Sistema")
                     }
@@ -130,7 +153,6 @@ fun TableDashboardScreen(
                     )
                 }
 
-                // Botones para Eliminar (-) y Agregar (+) Sala
                 Row {
                     if (currentArea != null) {
                         IconButton(onClick = { showDeleteAreaDialog = true }) {
@@ -164,7 +186,6 @@ fun TableDashboardScreen(
                     val cardBgColor = if (table.isOccupied) MaterialTheme.colorScheme.errorContainer else GreenAvailable
                     val contentColor = if (table.isOccupied) MaterialTheme.colorScheme.onErrorContainer else OnGreenAvailable
 
-                    // Concatenamos el prefijo del área con el número de la mesa
                     val prefix = currentArea?.prefix ?: ""
                     val tableName = if (prefix.isNotBlank()) "$prefix${table.number}" else "Mesa ${table.number}"
 
@@ -208,7 +229,6 @@ fun TableDashboardScreen(
         }
     }
 
-    // Diálogo para eliminar sala
     if (showDeleteAreaDialog && currentArea != null) {
         AlertDialog(
             onDismissRequest = { showDeleteAreaDialog = false },
@@ -233,7 +253,6 @@ fun TableDashboardScreen(
         )
     }
 
-    // Diálogo para crear Nueva Sala
     if (showCreateAreaDialog) {
         var areaName by remember { mutableStateOf("") }
         var areaPrefix by remember { mutableStateOf("") }

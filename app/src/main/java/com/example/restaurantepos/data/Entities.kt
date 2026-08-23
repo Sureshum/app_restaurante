@@ -52,9 +52,10 @@ data class ProductEntity(
 
 @Entity(tableName = "order_items")
 data class OrderItemEntity(
-    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    @PrimaryKey(autoGenerate = true)
+    val id: Int = 0,
     val tableId: Int,
     val productName: String,
     val price: Double,
-    val courseGroup: String
+    val courseGroup: String = "General"
 )

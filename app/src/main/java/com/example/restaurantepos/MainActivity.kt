@@ -14,6 +14,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.NavType
@@ -25,12 +27,10 @@ import com.example.restaurantepos.data.AppDatabase
 import com.example.restaurantepos.ui.MenuManagementScreen
 import com.example.restaurantepos.ui.OrderScreen
 import com.example.restaurantepos.ui.PosViewModel
-import com.example.restaurantepos.ui.PosViewModelFactory
 import com.example.restaurantepos.ui.ProductManagementScreen
 import com.example.restaurantepos.ui.TableDashboardScreen
 import com.example.restaurantepos.ui.UserSelectionScreen
 
-// Extensión para prevenir navegaciones dobles rápidas que causan pantallas en blanco
 fun NavController.safePopBackStack() {
     if (currentBackStackEntry?.lifecycle?.currentState == Lifecycle.State.RESUMED) {
         popBackStack()
@@ -41,7 +41,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Ocultar barra de botones del sistema de forma segura
         hideSystemUI()
 
         val database = AppDatabase.getDatabase(applicationContext)
@@ -54,7 +53,12 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     val viewModel: PosViewModel = viewModel(
-                        factory = PosViewModelFactory(dao)
+                        factory = object : ViewModelProvider.Factory {
+                            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                                @Suppress("UNCHECKED_CAST")
+                                return PosViewModel(dao) as T
+                            }
+                        }
                     )
 
                     RestaurantAppNavHost(viewModel = viewModel)
@@ -115,6 +119,7 @@ fun RestaurantAppNavHost(viewModel: PosViewModel) {
             val products by viewModel.products.collectAsState()
 
             TableDashboardScreen(
+                viewModel = viewModel,
                 session = session,
                 areas = areas,
                 selectedAreaId = selectedAreaId,
@@ -157,16 +162,21 @@ fun RestaurantAppNavHost(viewModel: PosViewModel) {
             )
         }
 
-        // PANTALLA DE GESTIÓN DE MENÚ COMPLETO (Edición de fotos, precios y nombres)
         composable("menu_management") {
             val products by viewModel.products.collectAsState(initial = emptyList())
+            val userSession by viewModel.currentUserSession.collectAsState(initial = null)
+            val isAdmin = userSession?.isAdmin() ?: false
+
             MenuManagementScreen(
+                isAdmin = isAdmin,
                 products = products,
                 onUpdateProduct = { updatedProduct ->
                     viewModel.updateProduct(updatedProduct)
                 },
                 onAddProductClick = {
-                    navController.navigate("product_management")
+                    if (navController.currentBackStackEntry?.lifecycle?.currentState == Lifecycle.State.RESUMED) {
+                        navController.navigate("product_management")
+                    }
                 },
                 onBack = {
                     navController.safePopBackStack()
@@ -174,7 +184,6 @@ fun RestaurantAppNavHost(viewModel: PosViewModel) {
             )
         }
 
-        // PANTALLA DE COMANDA DE LA MESA (Toma de pedidos limpia sin botón de editar)
         composable(
             route = "order_screen/{tableId}",
             arguments = listOf(navArgument("tableId") { type = NavType.IntType })
@@ -191,8 +200,9 @@ fun RestaurantAppNavHost(viewModel: PosViewModel) {
                 onSaveOrder = { items, total ->
                     viewModel.saveOrderForTable(tableId, items, total)
                 },
-                onPayTable = {
-                    viewModel.payTable(tableId)
+                // CAMBIO AQUÍ: Recibimos las variables items y total
+                onPayTable = { items, total ->
+                    viewModel.payTableDirectly(tableId, items, total)
                 },
                 onBack = {
                     navController.safePopBackStack()

@@ -10,8 +10,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 @Database(
-    entities = [UserEntity::class, AreaEntity::class, TableEntity::class, ProductEntity::class, OrderItemEntity::class],
-    version = 1,
+    entities = [
+        UserEntity::class,
+        AreaEntity::class,
+        TableEntity::class,
+        ProductEntity::class,
+        OrderItemEntity::class,
+        DailyReportEntity::class // <-- Agregado
+    ],
+    version = 2, // <-- Incrementado a 2 para migración
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -47,12 +54,10 @@ abstract class AppDatabase : RoomDatabase() {
                                         )
                                     )
 
-                                    // Crear Area por defecto
                                     val areaId = dao.insertArea(
                                         AreaEntity(name = "Salon Principal", prefix = "M")
                                     ).toInt()
 
-                                    // Crear Mesas por defecto
                                     for (i in 1..8) {
                                         dao.insertTable(
                                             TableEntity(areaId = areaId, number = i)

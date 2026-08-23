@@ -36,6 +36,7 @@ import java.io.File
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MenuManagementScreen(
+    isAdmin: Boolean,
     products: List<ProductEntity>,
     onUpdateProduct: (ProductEntity) -> Unit,
     onAddProductClick: () -> Unit,
@@ -61,19 +62,18 @@ fun MenuManagementScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Atrás")
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                }
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = onAddProductClick,
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.White
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Agregar Producto")
+            if (isAdmin) {
+                FloatingActionButton(
+                    onClick = onAddProductClick,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = Color.White
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Agregar Producto")
+                }
             }
         }
     ) { padding ->
@@ -93,16 +93,7 @@ fun MenuManagementScreen(
                     FilterChip(
                         selected = isSelected,
                         onClick = { selectedCategory = category },
-                        label = {
-                            Text(
-                                text = category.uppercase(),
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = Color.White
-                        )
+                        label = { Text(category.uppercase()) }
                     )
                 }
             }
@@ -110,11 +101,8 @@ fun MenuManagementScreen(
             HorizontalDivider()
 
             if (filteredProducts.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("No hay productos disponibles en esta categoría.")
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No hay productos disponibles.")
                 }
             } else {
                 LazyVerticalGrid(
@@ -127,7 +115,8 @@ fun MenuManagementScreen(
                     items(filteredProducts) { product ->
                         ProductManagementCard(
                             product = product,
-                            onEditClick = { editingProduct = product }
+                            isAdmin = isAdmin,
+                            onEditClick = { if (isAdmin) editingProduct = product }
                         )
                     }
                 }
@@ -135,21 +124,24 @@ fun MenuManagementScreen(
         }
     }
 
-    editingProduct?.let { product ->
-        EditProductDialog(
-            product = product,
-            onDismiss = { editingProduct = null },
-            onConfirm = { updated ->
-                onUpdateProduct(updated)
-                editingProduct = null
-            }
-        )
+    if (isAdmin) {
+        editingProduct?.let { product ->
+            EditProductDialog(
+                product = product,
+                onDismiss = { editingProduct = null },
+                onConfirm = { updatedProduct: ProductEntity ->
+                    onUpdateProduct(updatedProduct)
+                    editingProduct = null
+                }
+            )
+        }
     }
 }
 
 @Composable
 fun ProductManagementCard(
     product: ProductEntity,
+    isAdmin: Boolean,
     onEditClick: () -> Unit
 ) {
     Card(
@@ -157,7 +149,7 @@ fun ProductManagementCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onEditClick() }
+            .clickable(enabled = isAdmin) { onEditClick() }
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
             Column(
@@ -181,24 +173,12 @@ fun ProductManagementCard(
                             .background(Color.LightGray.copy(alpha = 0.3f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Image,
-                            contentDescription = null,
-                            tint = Color.Gray,
-                            modifier = Modifier.size(36.dp)
-                        )
+                        Icon(Icons.Default.Image, contentDescription = null, tint = Color.Gray)
                     }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = product.name,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    maxLines = 1
-                )
-
+                Text(text = product.name, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
                 Text(
                     text = "$${String.format("%.2f", product.price)}",
                     color = MaterialTheme.colorScheme.primary,
@@ -207,20 +187,22 @@ fun ProductManagementCard(
                 )
             }
 
-            IconButton(
-                onClick = onEditClick,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(4.dp)
-                    .size(28.dp)
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f), CircleShape)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Edit,
-                    contentDescription = "Editar",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(16.dp)
-                )
+            if (isAdmin) {
+                IconButton(
+                    onClick = onEditClick,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                        .size(28.dp)
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Editar",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
         }
     }
