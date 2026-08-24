@@ -13,3 +13,12 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+build/
+dist/
+*.spec
+
+recibos/
+
+__pycache__/
+*.pyc
