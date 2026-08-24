@@ -3,7 +3,13 @@
 </p>
 
 # 🍽️ RestaurantePOS - Sistema de Punto de Venta para Android
-**RestaurantePOS** es una aplicación moderna de punto de venta (POS) para restaurantes desarrollada en Kotlin utilizando **Jetpack Compose** y **Room Database**. Permite la gestión de mesas por áreas, control dinámico de comandas, menú interactivo y generación de reportes diarios de ventas.
+
+![Kotlin](https://img.shields.io/badge/Kotlin-1.9+-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
+![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-UI-4285F4?style=for-the-badge&logo=android&logoColor=white)
+![Room DB](https://img.shields.io/badge/Room-SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
+![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white)
+
+**RestaurantePOS** es una solución moderna de punto de venta (POS) para restaurantes construida de forma nativa en **Kotlin**. Utiliza **Jetpack Compose** para la interfaz declarativa y **Room Database** para el persistido de datos de baja latencia. Permite la gestión centralizada de mesas por áreas, control dinámico de comandas, catálogo de menú con persistencia de medios local y sincronización de red.
 
 ---
 
@@ -11,50 +17,112 @@
 
 La aplicación está optimizada con un diseño responsivo para adaptarse a múltiples factores de forma:
 
-* **Pantallas Táctiles POS (Totems / Monitores Industriales):**
-  * Funciona de forma nativa en terminales **POS All-in-One** (Sunmi, Elo Touch, PAX o cualquier hardware industrial con Android).
-  * Los botones y tarjetas están escalados para interacción táctil fluida sin necesidad de periféricos externos.
-* **Computadoras (Windows / Mac / Linux) y ChromeOS:**
-  * Se puede ejecutar en PC a través del emulador de **Android Studio**, **BlueStacks**, o de forma directa en sistemas con **ChromeOS** y computadoras con Android OS / Subsistema Android.
-  * El sistema mapea clics de ratón a gestos táctiles de manera transparente.
-* **Tablets y Smartphones Android:**
-  * Compatible con dispositivos Android 8.0 (API 26) o superior.
+* **Pantallas Táctiles POS (Totems / Monitores Industriales):** Funciona de forma nativa en terminales POS All-in-One (*Sunmi, Elo Touch, PAX* o hardware industrial Android). Sus botones y tarjetas están dimensionados para interacción táctil fluida.
+* **Computadoras (Windows / Mac / Linux) y ChromeOS:** Compatible mediante el emulador de Android Studio, BlueStacks, o de forma directa en ChromeOS y Subsistemas Android (WSA), mapeando clics de ratón a eventos táctiles.
+* **Tablets y Smartphones Android:** Compatible con dispositivos con Android 8.0 (API 26) o superior.
 
 ---
 
 ## 🚀 Características Principales
 
 ### 🛋️ Gestión de Mesas y Áreas
-* **Organización por Zonas:** Creación y eliminación de áreas de servicio (ej. Terraza, Barra, Salón Principal).
-* **Control Visual:** Indicadores en tiempo real sobre el estado de ocupación de las mesas y montos acumulados.
-* **Configuración Dinámica:** Posibilidad de modificar la cantidad y numeración de mesas por área.
+* **Organización por Zonas:** Creación, edición y eliminación de áreas de servicio (ej. *Terraza, Barra, Salón Principal*).
+* **Control Visual:** Indicadores dinámicos de ocupación y montos acumulados por mesa.
+* **Configuración Dinámica:** Modificación instantánea del número y correlativo de mesas por área.
 
 ### 📋 Comandas y Facturación (`OrderScreen`)
-* **Toma de Pedidos:** Selección intuitiva de platillos por categorías.
-* **Modificación en Tiempo Real:** Incremento/decremento de cantidades de platillos directo en la comanda.
-* **Cobro Directo vs. Guardado:** Permite guardar comandas abiertas para cobro posterior o realizar cobros inmediatos directamente desde la mesa.
-* **Sincronización Automática:** Estado en tiempo real del carrito sincronizado con la base de datos Room.
+* **Toma de Pedidos:** Navegación por menú categorizado y adición rápida de ítems al carrito.
+* **Modificación en Tiempo Real:** Ajuste fluido de cantidades e ítems directo en la comanda.
+* **Cobro Directo vs. Guardado:** Permite mantener comandas abiertas para cobro posterior o efectuar cierres inmediatos de mesa.
+* **Sincronización:** Estado del carrito en tiempo real enlazado a la base de datos Room y sincronización mediante polling con servidores remotos de red local.
 
 ### 🍔 Gestión de Menú (`MenuManagementScreen`)
-* **Añadir y Editar Productos:** Creación de nuevos platillos con foto, categoría y precio.
-* **Visualización Dinámica:** Filtro por categorías y tarjetas interactivas de productos.
-* **Almacenamiento Local de Imágenes:** Las fotos subidas desde el dispositivo se almacenan permanentemente en el almacenamiento interno de la app.
+* **Añadir y Editar Productos:** Creación de platillos especificando foto, categoría y precio.
+* **Almacenamiento Local de Imágenes:** Las imágenes cargadas se persisten de forma permanente en la memoria interna de la aplicación.
 
 ### 🔐 Control de Usuarios y Sesiones
 * **Roles de Usuario:** Autenticación por PIN de seguridad para Administradores y Meseros.
-* **Sesión Activa:** Control de acceso a funciones avanzadas según los permisos del usuario activo.
+* **Seguridad:** Restricción de funciones avanzadas del sistema según el tipo de usuario activo.
 
 ---
 
-## 🛠️ Tecnologías Utilizadas
+## 📖 Manual de Uso y Flujo de Trabajo
 
-* **Lenguaje:** [Kotlin](https://kotlinlang.org/)
-* **UI Framework:** [Jetpack Compose](https://developer.android.com/jetpack/compose) (Material 3)
-* **Navegación:** Jetpack Navigation Compose
-* **Arquitectura:** MVVM (Model-View-ViewModel)
-* **Base de Datos Local:** [Room Persistence Library](https://developer.android.com/training/data-storage/room)
-* **Carga de Imágenes:** [Coil](https://coil-kt.github.io/coil/)
-* **Concurrencia:** Kotlin Coroutines & Flow
+### 1. Inicio de Sesión y Selección de Usuario
+1. Abre la aplicación en tu terminal POS, tablet o emulador.
+2. En la pantalla principal, selecciona tu usuario (Administrador o Mesero).
+3. Ingresa tu **PIN de seguridad** de 4 dígitos para acceder al panel principal.
+
+---
+
+### 2. Configuración Inicial (Administrador)
+
+**Crear Áreas de Servicio:**
+1. En el panel superior del dashboard, presiona el icono **➕ (Agregar Sala)**.
+2. Ingresa el nombre del área (ej. *Terraza*) y un prefijo corto (ej. *T*).
+3. Presiona **Crear**. La nueva pestaña aparecerá en la barra superior.
+
+**Ajustar Cantidad de Mesas:**
+1. En la parte inferior del dashboard, presiona **Configurar cantidad de mesas**.
+2. Ingresa el número total de mesas requeridas para el área activa y presiona **Guardar**.
+*(Nota: La cantidad de mesas se sincronizará automáticamente con la PC si hay conexión activa).*
+
+**Cargar Menú de Productos:**
+1. Abre el **Menú del Sistema** (icono de cubiertos en la esquina superior derecha).
+2. Selecciona **Añadir Comida al Menú**.
+3. Rellena los datos: Categoría, Nombre del platillo, Precio y (opcionalmente) selecciona una imagen desde la galería de tu dispositivo.
+4. Presiona **Guardar**.
+
+---
+
+### 3. Flujo Diario de Servicio (Meseros)
+
+**Tomar una Comanda:**
+1. En la pantalla de **Mesas**, selecciona una tarjeta de mesa disponible (marcada en color verde).
+2. Navega por las categorías mediante el botón flotante inferior o revisa el catálogo general.
+3. Toca sobre los productos para agregarlos a la comanda. Cada toque incrementa la cantidad en `x1`.
+4. Para revisar la comanda, presiona el botón del **Monto/Factura** en la esquina inferior derecha. Aquí puedes ajustar las cantidades usando los botones `+` y `-`.
+
+**Enviar Comanda a Cocina / Guardar:**
+1. En la vista de la comanda, presiona **Enviar Comanda** o toca la flecha de regresar **(←)**.
+2. El pedido se guardará localmente en la base de datos de la app y se enviará vía red a la PC.
+3. La mesa en el dashboard cambiará automáticamente a estado **Ocupado** (color rojo) mostrando el total acumulado.
+
+---
+
+### 4. Cobro y Liberación de Mesas
+
+1. Toca una mesa ocupada para abrir su comanda activa.
+2. Abre la vista de factura presionando el botón del total acumulado.
+3. Presiona el botón **Pagar Mesa**.
+4. La aplicación realizará automáticamente las siguientes acciones:
+   * Generará un **recibo en formato PDF**.
+   * Enviará la notificación de cierre a la PC servidor vía IP.
+   * Vaciará el pedido en la base de datos local y cambiará el estado de la mesa a **Disponible** (verde).
+
+---
+
+### 5. Cierre de Día y Reportes (Administrador)
+
+1. En la barra superior del dashboard, presiona el icono de **Reportes / Cierre de Día (📊)**.
+2. Se desplegará un resumen interactivo con:
+   * Total de productos vendidos en el turno.
+   * Ventas totales acumuladas en dinero.
+3. Presiona **Confirmar Cierre de Día** para generar el reporte general, limpiar las ventas pendientes de consolidar y exportar el informe para administración.
+
+---
+
+## 🛠️ Stack Tecnológico
+
+| Componente | Tecnología |
+| :--- | :--- |
+| **Lenguaje** | Kotlin |
+| **UI Framework** | Jetpack Compose (Material 3) |
+| **Navegación** | Jetpack Navigation Compose |
+| **Arquitectura** | MVVM (Model-View-ViewModel) |
+| **Base de Datos** | Room Persistence Library |
+| **Carga de Imágenes** | Coil |
+| **Concurrencia** | Kotlin Coroutines & Flow |
 
 ---
 
@@ -63,23 +131,24 @@ La aplicación está optimizada con un diseño responsivo para adaptarse a múlt
 ```text
 com.example.restaurantepos/
 │
-├── data/                       # Capa de Datos (Room DB)
+├── data/                       # Capa de Datos (Room DB & Modelos)
 │   ├── AppDatabase.kt          # Instancia principal de SQLite/Room
 │   ├── Entities.kt             # Entidades: ProductEntity, OrderItemEntity, etc.
-│   ├── PosDao.kt               # Data Access Object para consultas
-│   └── OrderDao.kt             # Consultas específicas de comandas y reportes
+│   ├── PosDao.kt               # Data Access Object para consultas generales
+│   └── OrderDao.kt             # Consultas de comandas y reportes
 │
 ├── ui/                         # Capa de Presentación (Jetpack Compose)
 │   ├── MainActivity.kt         # NavHost y gestión de rutas
 │   ├── PosViewModel.kt         # Lógica de negocio y estado global
-│   ├── OrderScreen.kt          # Interfaz de comanda/factura por mesa
+│   ├── OrderScreen.kt          # Interfaz de comanda y cobranza por mesa
 │   ├── MenuManagementScreen.kt # Catálogo y edición del menú
-│   ├── TableDashboardScreen.kt # Panel principal de áreas y mesas
-│   ├── ProductManagementScreen.kt # Formulario de creación de productos
-│   └── UserSelectionScreen.kt  # Pantalla de login/selección de usuario
+│   ├── TableDashboardScreen.kt # Panel principal de áreas, mesas y polling
+│   ├── ProductManagementScreen.kt # Formulario de registro de productos
+│   └── UserSelectionScreen.kt  # Pantalla de inicio de sesión por PIN
 │
-└── utils/                      # Utilidades del sistema
-    └── SecurityUtils.kt        # Encriptación / Hash para PINs
+└── utils/                      # Utilidades y Red
+    ├── ExportManager.kt        # Generación de PDF y peticiones HTTP local
+    └── SecurityUtils.kt        # Funciones de hash y seguridad para PINs
 ```
 <p align="center">
   <img src="https://media1.tenor.com/m/qiWJ5Ivkq9IAAAAd/nerissa-cute-dance-rissa-cute-dance.gif" alt="Demostración POS" width="250"/>
