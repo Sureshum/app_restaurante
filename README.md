@@ -2,19 +2,6 @@
   <img src="https://media.tenor.com/LuJ6d6nx1nAAAAAi/koseki-bijou-hololive.gif" alt="Demostración POS" width="250"/>
 </p>
 
-# 🍽️ RestaurantePOS - Sistema de Punto de Venta para Android
-
-![Kotlin](https://img.shields.io/badge/Kotlin-1.9+-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
-![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-UI-4285F4?style=for-the-badge&logo=android&logoColor=white)
-![Room DB](https://img.shields.io/badge/Room-SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
-![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white)
-
-**RestaurantePOS** es una solución moderna de punto de venta (POS) para restaurantes construida de forma nativa en **Kotlin**. Utiliza **Jetpack Compose** para la interfaz declarativa y **Room Database** para el persistido de datos de baja latencia. Permite la gestión centralizada de mesas por áreas, control dinámico de comandas, catálogo de menú con persistencia de medios local y sincronización de red.
-
----
-
----
-
 ## 👨‍💻 Autoría y Créditos
 
 Este proyecto fue desarrollado de forma independiente por **Sureshum**. Todos los derechos reservados.
@@ -22,6 +9,41 @@ Este proyecto fue desarrollado de forma independiente por **Sureshum**. Todos lo
 * **Desarrollador:** Sureshum
 * **Contacto / Soporte:** ssshum25ssshum25@gmail.com
 * **Versión:** v1.0.0
+
+---
+
+# 🍽️ RestaurantePOS - Sistema de Punto de Venta para Android
+
+![Kotlin](https://img.shields.io/badge/Kotlin-1.9+-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
+![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-UI-4285F4?style=for-the-badge&logo=android&logoColor=white)
+![Room DB](https://img.shields.io/badge/Room-SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
+![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white)
+
+¡Bienvenido a **RestaurantePOS**! Este sistema permite que los camareros tomen pedidos desde teléfonos o tablets Android y que la caja principal en la computadora los reciba al instante para cobrar e imprimir los recibos.
+
+---
+
+## 📱 ¿Qué incluye este sistema?
+
+1. **Aplicación para Celular/Tablet (Android):** Utilizada por los camareros para seleccionar las mesas, anotar pedidos y enviarlos a la caja.
+2. **Programa para la Computadora (Windows):** Ubicado en la caja central. Muestra en pantalla el mapa de mesas en tiempo real (verde si está libre, rojo si está ocupada), cobra en efectivo o tarjeta y genera los recibos en PDF.
+
+---
+
+
+## 🚀 Guía de Instalación Rápida (Paso a Paso)
+
+No necesitas saber de programación para poner a funcionar el sistema. Sigue estos simples pasos:
+
+### Paso 1: Instalar la App en los Teléfonos de los Camareros
+1. Ve a la sección **Releases (Lanzamientos)** a la derecha de esta página en GitHub.
+2. Descarga el archivo que termina en **`.apk`**.
+3. Pásalo a los teléfonos de los camareros e instálalo (si el teléfono pide permiso para "Instalar aplicaciones desconocidas", presiona **Aceptar**).
+
+### Paso 2: Preparar la Computadora de la Caja
+1. En la misma sección de **Releases**, descarga el archivo comprimido **`.zip`**.
+2. Descomprime la carpeta en el Escritorio de la computadora.
+3. Abre la carpeta y haz doble clic en el programa **`caja_app.exe`**. ¡Listo! Verás la pantalla principal de la caja.
 
 ---
 
@@ -35,8 +57,29 @@ Para compilar el proyecto en una carpeta autocontenida con soporte para la gener
 
 ```powershell
 python -m PyInstaller --noconfirm --onedir --windowed --add-data "recibos;recibos" caja_app.py
-
 ```
+---
+
+## ⚙️ Conectar los Teléfonos con la Computadora
+
+Para que los celulares puedan enviar pedidos a la computadora, **todos los dispositivos deben estar conectados a la misma red Wi-Fi del restaurante**.
+
+1. En la computadora de la caja, averigua su dirección IP local (ejemplo: `192.xxx.x.xx`).
+2. abre el terminal y pones este comando
+```powershell
+ipconfig
+```
+4. Abre la aplicación en el teléfono del camarero y entra a **Configuración**.
+5. Escribe esa misma dirección IP. A partir de ese momento, cada pedido enviado aparecerá automáticamente en la pantalla de la computadora.
+
+---
+
+## ❓ Preguntas Frecuentes
+
+* **¿Qué hago si la computadora no recibe los pedidos?**  
+  Asegúrate de que el teléfono no haya perdido la conexión al Wi-Fi del restaurante y que la IP guardada en el teléfono coincida con la de la computadora.
+* **¿Dónde se guardan las facturas o recibos?**  
+  Dentro de la carpeta del programa en la computadora se crea automáticamente una carpeta llamada `recibos`, donde se guardan todos los archivos PDF con la fecha y hora de cada cobro.
 
 ---
 
