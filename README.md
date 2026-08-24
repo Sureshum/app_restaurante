@@ -13,6 +13,33 @@
 
 ---
 
+---
+
+## 👨‍💻 Autoría y Créditos
+
+Este proyecto fue desarrollado de forma independiente por **Sureshum**. Todos los derechos reservados.
+
+* **Desarrollador:** Sureshum
+* **Contacto / Soporte:** ssshum25ssshum25@gmail.com
+* **Versión:** v1.0.0
+
+---
+
+## 📦 Compilación y Despliegue (Ejecutable .exe)
+
+El sistema está preparado para empaquetarse en un entorno autónomo de Windows sin requerir instalación previa de Python en la caja central.
+
+### 1. Generar Ejecutable con PyInstaller
+
+Para compilar el proyecto en una carpeta autocontenida con soporte para la generación de archivos PDF y la interfaz en PyQt6, ejecuta el siguiente comando en la terminal:
+
+```powershell
+python -m PyInstaller --noconfirm --onedir --windowed --add-data "recibos;recibos" caja_app.py
+
+```
+
+---
+
 ## 🖥️ Compatibilidad y Dispositivos
 
 La aplicación está optimizada con un diseño responsivo para adaptarse a múltiples factores de forma:
