@@ -9,6 +9,11 @@ import subprocess
 import shutil
 import time
 
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w", encoding="utf-8")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
 from datetime import datetime
 from typing import List, Optional, Dict
 
@@ -54,11 +59,16 @@ from pydantic import BaseModel
 DEVELOPER_NAME = "Sureshum"
 DEVELOPER_CONTACT = "ssshum25ssshum25@gmail.com"
 
-APP_VERSION = "v1.7.0"
+APP_VERSION = "v1.8.0"
 
-CARPETA_RECIBOS = "recibos"
-CARPETA_IMAGENES = "imagenes_productos"
-DATA_FILE = "pos_database.json"
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+CARPETA_RECIBOS = os.path.join(BASE_DIR, "recibos")
+CARPETA_IMAGENES = os.path.join(BASE_DIR, "imagenes_productos")
+DATA_FILE = os.path.join(BASE_DIR, "pos_database.json")
 
 SERVER_HOST = "0.0.0.0"
 SERVER_PORT = 5000
@@ -173,16 +183,15 @@ DEFAULT_PRODUCTS: List[dict] = [
 
 rooms_db: Dict[int, dict] = {}
 products_db: List[dict] = []
+daily_sales_db: List[dict] = []
 last_sync_version = 0
 
 
 def normalize_rooms_db():
-    """Garantiza que cada sala tenga exactamente sus mesas 1..count sin duplicados de claves."""
+    """Garantiza que cada sala tenga sus mesas ordenadas 1..count sin perder mesas ocupadas."""
     with db_lock:
         for area_id, room in list(rooms_db.items()):
-            count = max(1, int(room.get("count", 10)))
-            room["count"] = count
-
+            base_count = max(1, int(room.get("count", 10)))
             prefix = room.get("prefix", "M").strip()
             room["prefix"] = prefix if prefix else "M"
 
@@ -201,8 +210,11 @@ def normalize_rooms_db():
                         val["number"] = num
                         tables_by_number[num] = val
 
+            max_num = max([base_count] + list(tables_by_number.keys()))
+            room["count"] = max_num
+
             clean_mesas = {}
-            for i in range(1, count + 1):
+            for i in range(1, max_num + 1):
                 if i in tables_by_number:
                     clean_mesas[f"Mesa {i}"] = tables_by_number[i]
                 else:
@@ -222,7 +234,9 @@ def save_database():
             normalize_rooms_db()
             payload = {
                 "rooms": rooms_db,
-                "products": products_db
+                "products": products_db,
+                "daily_sales": daily_sales_db,
+                "iva_percentage": IVA_PERCENTAGE
             }
             with open(DATA_FILE, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -231,7 +245,7 @@ def save_database():
 
 
 def load_database():
-    global rooms_db, products_db
+    global rooms_db, products_db, daily_sales_db, IVA_PERCENTAGE
     with db_lock:
         if os.path.exists(DATA_FILE):
             try:
@@ -241,9 +255,12 @@ def load_database():
                     if "rooms" in raw_data:
                         rooms_db = {int(k): v for k, v in raw_data["rooms"].items()}
                         products_db = raw_data.get("products", copy.deepcopy(DEFAULT_PRODUCTS))
+                        daily_sales_db = raw_data.get("daily_sales", [])
+                        IVA_PERCENTAGE = raw_data.get("iva_percentage", 16.0)
                     else:
                         rooms_db = {int(k): v for k, v in raw_data.items()}
                         products_db = copy.deepcopy(DEFAULT_PRODUCTS)
+                        daily_sales_db = []
 
                     normalize_rooms_db()
                     return
@@ -252,6 +269,7 @@ def load_database():
 
         rooms_db = copy.deepcopy(DEFAULT_ROOMS_DB)
         products_db = copy.deepcopy(DEFAULT_PRODUCTS)
+        daily_sales_db = []
         save_database()
 
 
@@ -486,6 +504,99 @@ def generar_recibo_pdf(
     c.setFont("Helvetica-Oblique", 8)
     c.drawCentredString(306, 30, f"Software desarrollado por {DEVELOPER_NAME} - Sistema RestaurantePOS")
 
+    c.save()
+    return ruta_completa
+
+
+def generar_reporte_cierre_dia_pdf(sales_list: list) -> str:
+    fecha_hoy = datetime.now().strftime("%Y-%m-%d")
+    nombre_archivo = f"Cierre_Caja_{fecha_hoy}_{datetime.now().strftime('%H%M%S')}.pdf"
+    ruta_completa = os.path.join(CARPETA_RECIBOS, nombre_archivo)
+
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+
+    c = canvas.Canvas(ruta_completa, pagesize=letter)
+    y = 750
+
+    c.setFont("Helvetica-Bold", 16)
+    c.drawCentredString(306, y, "--- REPORTE DE CIERRE DE CAJA / DÍA ---")
+    y -= 30
+
+    total_vendido = sum(s.get("total", 0.0) for s in sales_list)
+    total_efectivo = sum(s.get("efectivo", 0.0) for s in sales_list)
+    total_tarjeta = sum(s.get("tarjeta", 0.0) for s in sales_list)
+    total_subtotal = sum(s.get("subtotal", 0.0) for s in sales_list)
+    total_iva = sum(s.get("iva", 0.0) for s in sales_list)
+    total_cuentas = len(sales_list)
+
+    product_counts = {}
+    for s in sales_list:
+        for it in s.get("items", []):
+            p_name = it.get("nombre", "Producto")
+            p_cant = it.get("cantidad", 1)
+            p_precio = it.get("precio", 0.0)
+            if p_name not in product_counts:
+                product_counts[p_name] = {"cantidad": 0, "total": 0.0}
+            product_counts[p_name]["cantidad"] += p_cant
+            product_counts[p_name]["total"] += (p_cant * p_precio)
+
+    c.setFont("Helvetica", 11)
+    c.drawString(80, y, f"Fecha de Cierre: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+    c.drawString(340, y, f"Cuentas Cobradas: {total_cuentas}")
+    y -= 18
+    c.drawString(80, y, f"Efectivo: ${total_efectivo:.2f}")
+    c.drawString(220, y, f"Tarjeta: ${total_tarjeta:.2f}")
+    c.drawString(340, y, f"Subtotal Base: ${total_subtotal:.2f}")
+    y -= 18
+    c.setFont("Helvetica-Bold", 13)
+    c.drawString(80, y, f"GRAN TOTAL DEL DÍA: ${total_vendido:.2f}")
+    c.drawString(340, y, f"Total IVA ({IVA_PERCENTAGE:.1f}%): ${total_iva:.2f}")
+    y -= 22
+
+    c.setLineWidth(1)
+    c.line(80, y, 532, y)
+    y -= 18
+
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(80, y, "Platillo / Producto")
+    c.drawString(310, y, "Cant. Total")
+    c.drawString(440, y, "Total Recaudado")
+    y -= 12
+    c.line(80, y, 532, y)
+    y -= 18
+
+    c.setFont("Helvetica", 10)
+    for p_name, p_data in sorted(product_counts.items(), key=lambda x: x[1]["cantidad"], reverse=True):
+        c.drawString(80, y, str(p_name)[:30])
+        c.drawString(320, y, str(p_data["cantidad"]))
+        c.drawString(440, y, f"${p_data['total']:.2f}")
+        y -= 16
+
+        if y < 100:
+            c.showPage()
+            y = 750
+            c.setFont("Helvetica", 10)
+
+    y -= 10
+    c.line(80, y, 532, y)
+    y -= 22
+
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(80, y, "Historial de Cuentas Cobradas:")
+    y -= 16
+    c.setFont("Helvetica", 9)
+    for s in sales_list:
+        hora = s.get('fecha_hora', '')[-8:] if len(s.get('fecha_hora', '')) >= 8 else ''
+        c.drawString(80, y, f"• [{hora}] {s.get('mesa', '')} ({s.get('sala', '')}) - Total: ${s.get('total', 0.0):.2f} (Efec: ${s.get('efectivo', 0.0):.2f} | Tarj: ${s.get('tarjeta', 0.0):.2f}) - Atendió: {s.get('camarero', '')}")
+        y -= 14
+        if y < 100:
+            c.showPage()
+            y = 750
+            c.setFont("Helvetica", 9)
+
+    c.setFont("Helvetica-Oblique", 8)
+    c.drawCentredString(306, 30, f"Reporte de Cierre generado por RestaurantePOS - {DEVELOPER_NAME}")
     c.save()
     return ruta_completa
 
@@ -773,6 +884,155 @@ def run_server():
     )
     server = uvicorn.Server(config)
     server.run()
+
+
+# ============================================================
+# DIÁLOGO DE CIERRE DE DÍA / REPORTES (PyQt6)
+# ============================================================
+
+class CierreDiaDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("📊 Reporte de Cierre de Caja / Fin del Día")
+        self.resize(640, 560)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+
+        with db_lock:
+            sales = list(daily_sales_db)
+
+        total_vendido = sum(s.get("total", 0.0) for s in sales)
+        total_efectivo = sum(s.get("efectivo", 0.0) for s in sales)
+        total_tarjeta = sum(s.get("tarjeta", 0.0) for s in sales)
+        total_subtotal = sum(s.get("subtotal", 0.0) for s in sales)
+        total_iva = sum(s.get("iva", 0.0) for s in sales)
+        total_cuentas = len(sales)
+
+        # Tarjetas de resumen
+        cards_frame = QFrame()
+        cards_frame.setStyleSheet("background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 8px; padding: 10px;")
+        cards_layout = QGridLayout(cards_frame)
+        cards_layout.setSpacing(12)
+
+        lbl_tot = QLabel(f"💰 <b>Total Facturado:</b><br><font size='5' color='#16A34A'><b>${total_vendido:.2f}</b></font>")
+        lbl_efectivo = QLabel(f"💵 <b>Total Efectivo:</b><br><font size='4' color='#0284C7'><b>${total_efectivo:.2f}</b></font>")
+        lbl_tarjeta = QLabel(f"💳 <b>Total Tarjeta:</b><br><font size='4' color='#7C3AED'><b>${total_tarjeta:.2f}</b></font>")
+        lbl_cuentas = QLabel(f"🧾 <b>Cuentas Cobradas:</b><br><font size='4' color='#334155'><b>{total_cuentas}</b></font>")
+
+        cards_layout.addWidget(lbl_tot, 0, 0)
+        cards_layout.addWidget(lbl_efectivo, 0, 1)
+        cards_layout.addWidget(lbl_tarjeta, 1, 0)
+        cards_layout.addWidget(lbl_cuentas, 1, 1)
+
+        layout.addWidget(cards_frame)
+
+        # Tabla de desglose de productos vendidos
+        layout.addWidget(QLabel("<b>🍽️ Desglose de Productos Vendidos Hoy:</b>"))
+        table = QTableWidget()
+        table.setColumnCount(3)
+        table.setHorizontalHeaderLabels(["Producto", "Cant. Total", "Total Recaudado ($)"])
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+
+        product_counts = {}
+        for s in sales:
+            for it in s.get("items", []):
+                p_name = it.get("nombre", "Producto")
+                p_cant = it.get("cantidad", 1)
+                p_precio = it.get("precio", 0.0)
+                if p_name not in product_counts:
+                    product_counts[p_name] = {"cantidad": 0, "total": 0.0}
+                product_counts[p_name]["cantidad"] += p_cant
+                product_counts[p_name]["total"] += (p_cant * p_precio)
+
+        table.setRowCount(len(product_counts))
+        for row_idx, (p_name, p_data) in enumerate(sorted(product_counts.items(), key=lambda x: x[1]["cantidad"], reverse=True)):
+            table.setItem(row_idx, 0, QTableWidgetItem(str(p_name)))
+            item_cant = QTableWidgetItem(str(p_data["cantidad"]))
+            item_cant.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            table.setItem(row_idx, 1, item_cant)
+            item_tot = QTableWidgetItem(f"${p_data['total']:.2f}")
+            item_tot.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            table.setItem(row_idx, 2, item_tot)
+
+        layout.addWidget(table)
+
+        # Botones de Acción
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
+
+        btn_pdf = QPushButton("📄 Generar Reporte PDF")
+        btn_pdf.setStyleSheet("background-color: #0284C7; color: white; font-weight: bold; padding: 10px; border-radius: 6px; font-size: 13px;")
+        btn_pdf.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_pdf.clicked.connect(self.export_pdf)
+
+        btn_reset = QPushButton("🔄 Finalizar Día / Reiniciar Caja")
+        btn_reset.setStyleSheet("background-color: #DC2626; color: white; font-weight: bold; padding: 10px; border-radius: 6px; font-size: 13px;")
+        btn_reset.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_reset.clicked.connect(self.reset_day)
+
+        btn_close = QPushButton("Cerrar")
+        btn_close.setStyleSheet("background-color: #64748B; color: white; font-weight: bold; padding: 10px; border-radius: 6px; font-size: 13px;")
+        btn_close.clicked.connect(self.accept)
+
+        btn_layout.addWidget(btn_pdf)
+        btn_layout.addWidget(btn_reset)
+        btn_layout.addWidget(btn_close)
+
+        layout.addLayout(btn_layout)
+
+    def export_pdf(self):
+        with db_lock:
+            sales = list(daily_sales_db)
+
+        if not sales:
+            QMessageBox.information(self, "Aviso", "No hay ventas registradas el día de hoy.")
+            return
+
+        try:
+            pdf_path = generar_reporte_cierre_dia_pdf(sales)
+            if sys.platform == "win32":
+                os.startfile(os.path.abspath(pdf_path))
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", os.path.abspath(pdf_path)])
+            else:
+                subprocess.Popen(["xdg-open", os.path.abspath(pdf_path)])
+            QMessageBox.information(self, "Reporte Generado", f"Reporte de cierre guardado y abierto:\n{pdf_path}")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"No se pudo generar el reporte PDF: {e}")
+
+    def reset_day(self):
+        with db_lock:
+            sales_count = len(daily_sales_db)
+
+        if sales_count == 0:
+            QMessageBox.information(self, "Aviso", "La caja ya está vacía y lista para un nuevo día.")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Confirmar Cierre de Día",
+            "¿Deseas cerrar el día actual y reiniciar los totales a cero?\n\n(Se generará automáticamente un respaldo en PDF del cierre antes de reiniciar).",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            with db_lock:
+                try:
+                    generar_reporte_cierre_dia_pdf(list(daily_sales_db))
+                except Exception:
+                    pass
+                daily_sales_db.clear()
+                mark_database_changed()
+
+            QMessageBox.information(self, "Día Cerrado", "✅ ¡Día finalizado con éxito! La caja está lista para el próximo turno.")
+            self.accept()
 
 
 # ============================================================
@@ -1174,8 +1434,6 @@ class CashierWindow(QMainWindow):
             except Exception:
                 pass
 
-            self.rebuild_tabs()
-
         self.refresh_ui()
 
     # --------------------------------------------------------
@@ -1197,6 +1455,13 @@ class CashierWindow(QMainWindow):
 
         lbl_app_title = QLabel("<h3><b>🍽️ Sistema de Restaurante & Caja</b></h3>")
         lbl_app_title.setStyleSheet("color: white;")
+
+        btn_cierre = QPushButton("📊 Cierre de Día")
+        btn_cierre.setStyleSheet(
+            "background-color: #0284C7; color: white; font-weight: bold; "
+            "padding: 5px 12px; border-radius: 4px; font-size: 12px;"
+        )
+        btn_cierre.clicked.connect(self.open_cierre_dia)
 
         btn_menu = QPushButton("🍔 Menú / Productos")
         btn_menu.setStyleSheet(
@@ -1228,6 +1493,7 @@ class CashierWindow(QMainWindow):
 
         banner_layout.addWidget(lbl_app_title)
         banner_layout.addStretch()
+        banner_layout.addWidget(btn_cierre)
         banner_layout.addWidget(btn_menu)
         banner_layout.addWidget(btn_open_folder)
         banner_layout.addWidget(btn_tax)
@@ -2000,6 +2266,23 @@ class CashierWindow(QMainWindow):
             QMessageBox.warning(self, "Pago insuficiente", f"Falta pagar ${abs(change):.2f}")
             return
 
+        # 1. Guardar registro de venta para el Cierre de Día
+        sale_record = {
+            "id": int(time.time() * 1000),
+            "fecha_hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "mesa": display_name,
+            "sala": room_name,
+            "camarero": mesa_data.get("camarero", "") or "Caja",
+            "items": copy.deepcopy(mesa_data.get("items", [])),
+            "subtotal": float(subtotal),
+            "iva": float(monto_iva),
+            "total": float(total_due),
+            "efectivo": float(cash),
+            "tarjeta": float(card),
+            "cambio": float(max(0.0, change))
+        }
+
+        # 2. Generar recibo en PDF en segundo plano
         pdf_path = ""
         try:
             full_table_desc = f"{display_name} ({room_name})"
@@ -2017,24 +2300,33 @@ class CashierWindow(QMainWindow):
         except Exception as e:
             print(f"Error generando PDF: {e}")
 
+        # 3. Vaciar mesa y sincronizar al instante (0ms)
         with db_lock:
+            daily_sales_db.append(sale_record)
             mesa_data["items"] = []
             mesa_data["camarero"] = ""
             mesa_data["total"] = 0.0
+            normalize_rooms_db()
             mark_database_changed()
+            self.local_orders_tracker = last_sync_version
 
-        QMessageBox.information(
-            self,
-            "Cobro Exitoso",
-            f"El pago ha sido registrado correctamente.\nRecibo guardado en:\n{pdf_path or CARPETA_RECIBOS}"
-        )
-
+        # 4. Cerrar diálogo y refrescar la interfaz de inmediato
         dialog.accept()
         self.refresh_ui()
+
+        # 5. Notificación sonora suave
+        try:
+            winsound.MessageBeep(winsound.MB_OK)
+        except Exception:
+            pass
 
     # --------------------------------------------------------
     # ACCIONES ADICIONALES
     # --------------------------------------------------------
+
+    def open_cierre_dia(self):
+        dialog = CierreDiaDialog(self)
+        dialog.exec()
 
     def open_menu_management(self):
         dialog = MenuManagementDialog(self)
