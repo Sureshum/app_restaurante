@@ -31,14 +31,10 @@ data class AreaEntity(
             childColumns = ["areaId"],
             onDelete = ForeignKey.CASCADE
         )
-    ],
-    indices = [
-        androidx.room.Index(value = ["areaId", "number"], unique = true),
-        androidx.room.Index(value = ["areaId"])
     ]
 )
 data class TableEntity(
-    @PrimaryKey val id: Int,
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val areaId: Int,
     val number: Int,
     val isOccupied: Boolean = false,
