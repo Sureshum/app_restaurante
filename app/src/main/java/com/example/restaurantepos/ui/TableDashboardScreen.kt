@@ -58,7 +58,7 @@ fun TableDashboardScreen(
     }
 
     // 🔄 Sincronización ultrarrápida combinada con el Servidor Madre (PC)
-    LaunchedEffect(selectedAreaId, tables) {
+    LaunchedEffect(selectedAreaId) {
         while (true) {
             val currentIp = ExportManager.getPcIp(context)
             if (currentIp.isNotBlank() && currentIp != "192.168.x.xx") {
@@ -119,49 +119,54 @@ fun TableDashboardScreen(
                         }
                     }
 
-                    // 3. Sincronizar Estado de Mesas en tiempo real
+                    // 3. Sincronizar Estado de Mesas en tiempo real de forma aislada por sala
                     val jsonTables = response.tables
-                    tables.forEach { table ->
-                        val prefix = currentArea?.prefix?.trim() ?: ""
-                        val areaName = currentArea?.name?.trim() ?: ""
-                        val keyFullName = if (prefix.isNotBlank() && prefix.uppercase() != "M") "$prefix${table.number}" else "Mesa ${table.number}"
-                        val keyRoomName = "$areaName ${table.number}"
-                        val keyStandard = "Mesa ${table.number}"
-                        val keySimple = "${table.number}"
+                    val targetAreaId = selectedAreaId ?: currentArea?.id
+                    if (targetAreaId != null) {
+                        tables.forEach { table ->
+                            // IMPORTANTE: Solo actualizar la mesa si coincide con la sala activa para evitar mezclar salas
+                            if (table.areaId == targetAreaId) {
+                                val prefix = currentArea?.prefix?.trim() ?: ""
+                                val keyPrefix = if (prefix.isNotBlank() && prefix.uppercase() != "M") "$prefix${table.number}" else "Mesa ${table.number}"
+                                val keyAreaNum = "${table.areaId}_${table.number}"
+                                val keyExact = "area_${table.areaId}_table_${table.number}"
 
-                        val activeKey = when {
-                            jsonTables.has(keyFullName) -> keyFullName
-                            jsonTables.has(keyRoomName) -> keyRoomName
-                            jsonTables.has(keyStandard) -> keyStandard
-                            jsonTables.has(keySimple) -> keySimple
-                            else -> null
-                        }
-
-                        if (activeKey != null) {
-                            val tableData = jsonTables.getJSONObject(activeKey)
-                            val pcTotal = tableData.optDouble("total", 0.0)
-                            val itemsArray = tableData.optJSONArray("items")
-                            val pcIsOccupied = itemsArray != null && itemsArray.length() > 0
-
-                            if (table.isOccupied != pcIsOccupied || kotlin.math.abs(table.currentTotal - pcTotal) > 0.01) {
-                                val updatedItems = mutableListOf<Pair<ProductEntity, Int>>()
-
-                                if (pcIsOccupied && itemsArray != null) {
-                                    for (j in 0 until itemsArray.length()) {
-                                        val itemObj = itemsArray.getJSONObject(j)
-                                        val nombre = itemObj.optString("nombre", "")
-                                        val cantidad = itemObj.optInt("cantidad", 0)
-                                        val precio = itemObj.optDouble("precio", 0.0)
-
-                                        if (nombre.isNotBlank() && cantidad > 0) {
-                                            val matchedProduct = products.find { it.name.equals(nombre, ignoreCase = true) }
-                                                ?: ProductEntity(id = 0, category = "General", name = nombre, price = precio)
-                                            updatedItems.add(Pair(matchedProduct, cantidad))
-                                        }
-                                    }
+                                val activeKey = when {
+                                    jsonTables.has(keyExact) -> keyExact
+                                    jsonTables.has(keyAreaNum) -> keyAreaNum
+                                    jsonTables.has(keyPrefix) -> keyPrefix
+                                    jsonTables.has("Mesa ${table.number}") -> "Mesa ${table.number}"
+                                    jsonTables.has("${table.number}") -> "${table.number}"
+                                    else -> null
                                 }
 
-                                viewModel.saveOrderForTable(table.id, updatedItems, if (pcIsOccupied) pcTotal else 0.0)
+                                if (activeKey != null) {
+                                    val tableData = jsonTables.getJSONObject(activeKey)
+                                    val pcTotal = tableData.optDouble("total", 0.0)
+                                    val itemsArray = tableData.optJSONArray("items")
+                                    val pcIsOccupied = itemsArray != null && itemsArray.length() > 0
+
+                                    if (table.isOccupied != pcIsOccupied || kotlin.math.abs(table.currentTotal - pcTotal) > 0.01) {
+                                        val updatedItems = mutableListOf<Pair<ProductEntity, Int>>()
+
+                                        if (pcIsOccupied && itemsArray != null) {
+                                            for (j in 0 until itemsArray.length()) {
+                                                val itemObj = itemsArray.getJSONObject(j)
+                                                val nombre = itemObj.optString("nombre", "")
+                                                val cantidad = itemObj.optInt("cantidad", 0)
+                                                val precio = itemObj.optDouble("precio", 0.0)
+
+                                                if (nombre.isNotBlank() && cantidad > 0) {
+                                                    val matchedProduct = products.find { it.name.equals(nombre, ignoreCase = true) }
+                                                        ?: ProductEntity(id = 0, category = "General", name = nombre, price = precio)
+                                                    updatedItems.add(Pair(matchedProduct, cantidad))
+                                                }
+                                            }
+                                        }
+
+                                        viewModel.saveOrderForTable(table.id, updatedItems, if (pcIsOccupied) pcTotal else 0.0)
+                                    }
+                                }
                             }
                         }
                     }

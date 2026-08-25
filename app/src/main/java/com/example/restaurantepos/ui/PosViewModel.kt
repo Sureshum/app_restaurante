@@ -12,6 +12,10 @@ import com.example.restaurantepos.data.TableEntity
 import com.example.restaurantepos.data.UserEntity
 import com.example.restaurantepos.data.UserRole
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -38,8 +42,15 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
     private val _selectedAreaId = MutableStateFlow<Int?>(null)
     val selectedAreaId: StateFlow<Int?> = _selectedAreaId.asStateFlow()
 
-    private val _currentTables = MutableStateFlow<List<TableEntity>>(emptyList())
-    val currentTables: StateFlow<List<TableEntity>> = _currentTables.asStateFlow()
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val currentTables: StateFlow<List<TableEntity>> = _selectedAreaId
+        .filterNotNull()
+        .flatMapLatest { areaId ->
+            dao.getTablesByArea(areaId).map { rawTables ->
+                rawTables.distinctBy { it.number }.sortedBy { it.number }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _currentUserSession = MutableStateFlow<ActiveSession?>(null)
     val currentUserSession: StateFlow<ActiveSession?> = _currentUserSession.asStateFlow()
@@ -99,12 +110,6 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
 
     fun selectArea(areaId: Int) {
         _selectedAreaId.value = areaId
-        viewModelScope.launch(Dispatchers.IO) {
-            dao.getTablesByArea(areaId).collect { rawTables ->
-                val distinctTables = rawTables.distinctBy { it.number }.sortedBy { it.number }
-                _currentTables.value = distinctTables
-            }
-        }
     }
 
     fun createProduct(category: String, name: String, price: Double, imageUri: String? = null) {

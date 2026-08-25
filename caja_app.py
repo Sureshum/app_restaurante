@@ -1185,8 +1185,7 @@ class CashierWindow(QMainWindow):
         banner_layout.setContentsMargins(8, 4, 8, 4)
 
         lbl_ip_info = QLabel(
-            f"🟢 <b>Servidor Madre Activo:</b> <font color='#38BDF8'>http://{self.local_ip}:{SERVER_PORT}</font> "
-            f"<i>(Ingresa esta IP en la App Android de los meseros)</i>"
+            f"🟢 <b>Servidor Madre Activo:</b> <font color='#38BDF8'>http://{self.local_ip}:{SERVER_PORT}</font>"
         )
         lbl_ip_info.setStyleSheet("font-size: 13px;")
 
