@@ -22,3 +22,4 @@ recibos/
 
 __pycache__/
 *.pyc
+.kotlin/

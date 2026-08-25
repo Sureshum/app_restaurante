@@ -79,11 +79,19 @@ fun UserSelectionScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                Column {
                     Text(
                         text = "Seleccionar Usuario",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold
                     )
+                    Text(
+                        text = "RestaurantePOS Móvil • v1.7.0",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
 
                     IconButton(onClick = { showIpDialog = true }) {
                         Icon(

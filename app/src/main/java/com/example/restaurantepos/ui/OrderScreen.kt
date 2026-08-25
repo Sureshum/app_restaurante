@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Payment
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Remove
@@ -55,6 +56,8 @@ fun OrderScreen(
 
     var showCategorySheet by remember { mutableStateOf(false) }
     var showReceiptSheet by remember { mutableStateOf(false) }
+    var showCancelDialog by remember { mutableStateOf(false) }
+
     val scope = rememberCoroutineScope()
 
     val categories = remember(products) {
@@ -93,6 +96,7 @@ fun OrderScreen(
     val tableNameToSend = if (areaPrefix.isNotBlank()) "$areaPrefix${table.number}" else "Mesa ${table.number}"
     val tableDisplayName = if (areaPrefix.isNotBlank()) "$areaPrefix${table.number} • ${area?.name ?: ""}" else "Mesa ${table.number}"
 
+    // Guardar comanda y enviar a PC
     val handleSave = {
         if (!isNavigatingBack) {
             isNavigatingBack = true
@@ -125,6 +129,33 @@ fun OrderScreen(
         }
     }
 
+    // Cancelar comanda por completo y liberar mesa
+    val handleCancelOrder = {
+        if (!isNavigatingBack) {
+            isNavigatingBack = true
+            cart.clear()
+
+            scope.launch(Dispatchers.IO) {
+                val currentIp = ExportManager.getPcIp(context)
+                if (currentIp.isNotBlank() && currentIp != "192.168.x.xx") {
+                    ExportManager.sendOrderJsonToPc(
+                        pcIpAddress = currentIp,
+                        tableName = tableNameToSend,
+                        waiterName = "",
+                        itemsList = emptyList(),
+                        areaId = table.areaId
+                    )
+                }
+
+                withContext(Dispatchers.Main) {
+                    onSaveOrder(emptyList(), 0.0)
+                    onBack()
+                }
+            }
+        }
+    }
+
+    // Cobrar mesa y emitir ticket
     val handlePay = {
         if (!isNavigatingBack) {
             isNavigatingBack = true
@@ -167,7 +198,18 @@ fun OrderScreen(
                 title = { Text("Comanda • $tableDisplayName", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = { handleSave() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Guardar y Regresar")
+                    }
+                },
+                actions = {
+                    if (cart.isNotEmpty() || totalAmount > 0.0 || table.isOccupied) {
+                        IconButton(onClick = { showCancelDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Default.DeleteOutline,
+                                contentDescription = "Cancelar Pedido",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
             )
@@ -286,6 +328,31 @@ fun OrderScreen(
             }
         }
 
+        // Diálogo de Confirmación de Cancelación de Pedido
+        if (showCancelDialog) {
+            AlertDialog(
+                onDismissRequest = { showCancelDialog = false },
+                title = { Text("Cancelar Pedido", fontWeight = FontWeight.Bold) },
+                text = { Text("¿Estás seguro de que deseas cancelar todos los pedidos de $tableDisplayName y liberar la mesa?") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showCancelDialog = false
+                            handleCancelOrder()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Sí, Cancelar Pedido")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showCancelDialog = false }) {
+                        Text("No, Conservar")
+                    }
+                }
+            )
+        }
+
         if (showCategorySheet) {
             ModalBottomSheet(
                 onDismissRequest = { showCategorySheet = false },
@@ -331,63 +398,98 @@ fun OrderScreen(
                         .fillMaxWidth()
                         .padding(16.dp)
                 ) {
-                    Text(
-                        "Factura • $tableDisplayName",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 240.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        items(
-                            items = cart.entries.toList(),
-                            key = { it.key.id }
-                        ) { (prod, qty) ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        prod.name,
-                                        fontWeight = FontWeight.Bold,
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                    Text(
-                                        "$$${String.format(Locale.US, "%.2f", prod.price)} c/u",
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                }
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    IconButton(onClick = {
-                                        if (qty > 1) {
-                                            cart[prod] = qty - 1
-                                        } else {
-                                            cart.remove(prod)
-                                        }
-                                    }) {
-                                        Icon(Icons.Default.Remove, contentDescription = "Restar")
+                        Text(
+                            "Factura • $tableDisplayName",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (cart.isNotEmpty() || table.isOccupied) {
+                            TextButton(
+                                onClick = {
+                                    scope.launch { receiptSheetState.hide() }.invokeOnCompletion {
+                                        showReceiptSheet = false
+                                        showCancelDialog = true
                                     }
-                                    Text(
-                                        "$qty",
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 4.dp)
-                                    )
-                                    IconButton(onClick = {
-                                        cart[prod] = qty + 1
-                                    }) {
-                                        Icon(Icons.Default.Add, contentDescription = "Sumar")
+                                },
+                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                            ) {
+                                Icon(Icons.Default.DeleteOutline, contentDescription = null)
+                                Spacer(Modifier.width(4.dp))
+                                Text("Cancelar Pedido")
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                    if (cart.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("No hay consumos en esta mesa", color = MaterialTheme.colorScheme.outline)
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 240.dp)
+                        ) {
+                            items(
+                                items = cart.entries.toList(),
+                                key = { it.key.id }
+                            ) { (prod, qty) ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            prod.name,
+                                            fontWeight = FontWeight.Bold,
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        Text(
+                                            "$$${String.format(Locale.US, "%.2f", prod.price)} c/u",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        IconButton(onClick = {
+                                            if (qty > 1) {
+                                                cart[prod] = qty - 1
+                                            } else {
+                                                cart.remove(prod)
+                                            }
+                                        }) {
+                                            Icon(Icons.Default.Remove, contentDescription = "Restar")
+                                        }
+                                        Text(
+                                            "$qty",
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 4.dp)
+                                        )
+                                        IconButton(onClick = {
+                                            cart[prod] = qty + 1
+                                        }) {
+                                            Icon(Icons.Default.Add, contentDescription = "Sumar")
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
