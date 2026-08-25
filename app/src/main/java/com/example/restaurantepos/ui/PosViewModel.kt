@@ -125,9 +125,69 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
         }
     }
 
+    fun createProductFromMobile(
+        category: String,
+        name: String,
+        price: Double,
+        imageUri: String? = null,
+        context: android.content.Context
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            dao.insertProduct(
+                ProductEntity(
+                    category = category,
+                    name = name,
+                    price = price,
+                    imageUri = imageUri
+                )
+            )
+
+            val currentIp = ExportManager.getPcIp(context)
+            if (currentIp.isNotBlank() && currentIp != "192.168.x.xx") {
+                ExportManager.createProductOnPc(
+                    pcIpAddress = currentIp,
+                    category = category,
+                    name = name,
+                    price = price,
+                    imageUri = imageUri
+                )
+            }
+        }
+    }
+
     fun updateProduct(product: ProductEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             dao.updateProduct(product)
+        }
+    }
+
+    fun updateProductFromMobile(product: ProductEntity, context: android.content.Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            dao.updateProduct(product)
+            val currentIp = ExportManager.getPcIp(context)
+            if (currentIp.isNotBlank() && currentIp != "192.168.x.xx") {
+                ExportManager.updateProductOnPc(
+                    pcIpAddress = currentIp,
+                    productId = product.id,
+                    category = product.category,
+                    name = product.name,
+                    price = product.price,
+                    imageUri = product.imageUri
+                )
+            }
+        }
+    }
+
+    fun deleteProductFromMobile(product: ProductEntity, context: android.content.Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            dao.deleteProduct(product)
+            val currentIp = ExportManager.getPcIp(context)
+            if (currentIp.isNotBlank() && currentIp != "192.168.x.xx") {
+                ExportManager.deleteProductOnPc(
+                    pcIpAddress = currentIp,
+                    productId = product.id
+                )
+            }
         }
     }
 

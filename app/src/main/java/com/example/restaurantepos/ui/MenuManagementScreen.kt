@@ -1,5 +1,6 @@
 package com.example.restaurantepos.ui
 
+import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -16,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.*
@@ -32,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.restaurantepos.data.ProductEntity
 import java.io.File
+import java.io.FileOutputStream
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,6 +42,7 @@ fun MenuManagementScreen(
     isAdmin: Boolean,
     products: List<ProductEntity>,
     onUpdateProduct: (ProductEntity) -> Unit,
+    onDeleteProduct: (ProductEntity) -> Unit,
     onAddProductClick: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -53,6 +57,7 @@ fun MenuManagementScreen(
     }
 
     var editingProduct by remember { mutableStateOf<ProductEntity?>(null) }
+    var productToDelete by remember { mutableStateOf<ProductEntity?>(null) }
 
     Scaffold(
         topBar = {
@@ -112,11 +117,12 @@ fun MenuManagementScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(filteredProducts) { product ->
+                    items(filteredProducts, key = { it.id }) { product ->
                         ProductManagementCard(
                             product = product,
                             isAdmin = isAdmin,
-                            onEditClick = { if (isAdmin) editingProduct = product }
+                            onEditClick = { if (isAdmin) editingProduct = product },
+                            onDeleteClick = { if (isAdmin) productToDelete = product }
                         )
                     }
                 }
@@ -132,6 +138,34 @@ fun MenuManagementScreen(
                 onConfirm = { updatedProduct: ProductEntity ->
                     onUpdateProduct(updatedProduct)
                     editingProduct = null
+                },
+                onDelete = {
+                    productToDelete = product
+                    editingProduct = null
+                }
+            )
+        }
+
+        productToDelete?.let { product ->
+            AlertDialog(
+                onDismissRequest = { productToDelete = null },
+                title = { Text("Eliminar Producto", fontWeight = FontWeight.Bold) },
+                text = { Text("¿Estás seguro de que deseas eliminar '${product.name}'? Esta acción se sincronizará con la PC.") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            onDeleteProduct(product)
+                            productToDelete = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Eliminar")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { productToDelete = null }) {
+                        Text("Cancelar")
+                    }
                 }
             )
         }
@@ -142,8 +176,16 @@ fun MenuManagementScreen(
 fun ProductManagementCard(
     product: ProductEntity,
     isAdmin: Boolean,
-    onEditClick: () -> Unit
+    onEditClick: () -> Unit,
+    onDeleteClick: () -> Unit
 ) {
+    val imageModel: Any? = remember(product.imageUri) {
+        product.imageUri?.let { uri ->
+            if (uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("content://")) uri
+            else File(uri)
+        }
+    }
+
     Card(
         shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
@@ -156,9 +198,9 @@ fun ProductManagementCard(
                 modifier = Modifier.padding(8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                if (!product.imageUri.isNullOrEmpty()) {
+                if (imageModel != null) {
                     AsyncImage(
-                        model = File(product.imageUri),
+                        model = imageModel,
                         contentDescription = product.name,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
@@ -188,20 +230,39 @@ fun ProductManagementCard(
             }
 
             if (isAdmin) {
-                IconButton(
-                    onClick = onEditClick,
+                Row(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(4.dp)
-                        .size(28.dp)
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f), CircleShape)
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Editar",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(16.dp)
-                    )
+                    IconButton(
+                        onClick = onEditClick,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Editar",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onDeleteClick,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Eliminar",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
         }
@@ -212,14 +273,15 @@ fun ProductManagementCard(
 fun EditProductDialog(
     product: ProductEntity,
     onDismiss: () -> Unit,
-    onConfirm: (ProductEntity) -> Unit
+    onConfirm: (ProductEntity) -> Unit,
+    onDelete: () -> Unit
 ) {
     val context = LocalContext.current
 
     var name by remember { mutableStateOf(product.name) }
     var priceText by remember { mutableStateOf(product.price.toString()) }
     var category by remember { mutableStateOf(product.category) }
-    var imageUri by remember { mutableStateOf(product.imageUri) }
+    var imageUri by remember { mutableStateOf<String?>(product.imageUri) }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -229,6 +291,13 @@ fun EditProductDialog(
             if (permanentPath != null) {
                 imageUri = permanentPath
             }
+        }
+    }
+
+    val imageModel: Any? = remember(imageUri) {
+        imageUri?.let { uri ->
+            if (uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("content://")) uri
+            else File(uri)
         }
     }
 
@@ -248,9 +317,9 @@ fun EditProductDialog(
                         .clickable { imagePickerLauncher.launch("image/*") },
                     contentAlignment = Alignment.Center
                 ) {
-                    if (!imageUri.isNullOrEmpty()) {
+                    if (imageModel != null) {
                         AsyncImage(
-                            model = File(imageUri!!),
+                            model = imageModel,
                             contentDescription = "Foto producto",
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
@@ -283,10 +352,21 @@ fun EditProductDialog(
                     label = { Text("Categoría") },
                     singleLine = true
                 )
+
+                Spacer(Modifier.height(4.dp))
+                OutlinedButton(
+                    onClick = onDelete,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Eliminar este producto")
+                }
             }
         },
         confirmButton = {
-            TextButton(
+            Button(
                 onClick = {
                     val cleanName = name.trim()
                     val cleanCategory = category.trim().ifEmpty { "General" }

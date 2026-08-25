@@ -595,6 +595,7 @@ object ExportManager {
         category: String,
         name: String,
         price: Double,
+        imageUri: String? = null,
         port: Int = 5000
     ) {
         CoroutineScope(Dispatchers.IO).launch {
@@ -612,6 +613,7 @@ object ExportManager {
                     put("category", category)
                     put("name", name)
                     put("price", price)
+                    if (imageUri != null) put("imageUri", imageUri)
                 }
 
                 val writer = OutputStreamWriter(connection.outputStream, "UTF-8")
@@ -622,6 +624,107 @@ object ExportManager {
                 connection.disconnect()
             } catch (e: Exception) {
                 e.printStackTrace()
+            }
+        }
+    }
+
+    fun updateProductOnPc(
+        pcIpAddress: String,
+        productId: Int,
+        category: String,
+        name: String,
+        price: Double,
+        imageUri: String? = null,
+        port: Int = 5000
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val url = URL("http://$pcIpAddress:$port/products/$productId")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "PUT"
+                    setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                    doOutput = true
+                    connectTimeout = 4000
+                    readTimeout = 4000
+                }
+
+                val payload = JSONObject().apply {
+                    put("id", productId)
+                    put("category", category)
+                    put("name", name)
+                    put("price", price)
+                    if (imageUri != null) put("imageUri", imageUri)
+                }
+
+                val writer = OutputStreamWriter(connection.outputStream, "UTF-8")
+                writer.write(payload.toString())
+                writer.flush()
+                writer.close()
+                connection.responseCode
+                connection.disconnect()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun deleteProductOnPc(
+        pcIpAddress: String,
+        productId: Int,
+        port: Int = 5000
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val url = URL("http://$pcIpAddress:$port/products/$productId")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "DELETE"
+                    connectTimeout = 4000
+                    readTimeout = 4000
+                }
+                connection.responseCode
+                connection.disconnect()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun testConnection(
+        pcIpAddress: String,
+        port: Int = 5000,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val cleanIp = pcIpAddress.trim()
+                if (cleanIp.isBlank() || cleanIp == "192.168.x.xx") {
+                    withContext(Dispatchers.Main) {
+                        onResult(false, "Ingresa una IP válida antes de probar.")
+                    }
+                    return@launch
+                }
+
+                val url = URL("http://$cleanIp:$port/ping")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 3000
+                    readTimeout = 3000
+                }
+
+                val code = connection.responseCode
+                connection.disconnect()
+
+                withContext(Dispatchers.Main) {
+                    if (code == HttpURLConnection.HTTP_OK) {
+                        onResult(true, "✅ ¡Conexión Exitosa con el Servidor Madre!")
+                    } else {
+                        onResult(false, "❌ El servidor respondió con código $code.")
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onResult(false, "❌ No se pudo conectar. Verifica la IP y que la PC tenga el servidor encendido.")
+                }
             }
         }
     }

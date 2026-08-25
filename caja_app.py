@@ -7,6 +7,7 @@ import json
 import socket
 import subprocess
 import shutil
+import time
 
 from datetime import datetime
 from typing import List, Optional, Dict
@@ -664,6 +665,16 @@ def receive_order(payload: OrderPayload):
     }
 
 
+@api.get("/ping")
+def ping_endpoint():
+    return {
+        "status": "ok",
+        "message": "Servidor Madre Activo",
+        "version": last_sync_version,
+        "time": time.time()
+    }
+
+
 @api.get("/products")
 def get_products():
     with db_lock:
@@ -1176,7 +1187,7 @@ class CashierWindow(QMainWindow):
         root_layout.setContentsMargins(12, 12, 12, 8)
         root_layout.setSpacing(10)
 
-        # Banner superior de conexión Wi-Fi y accesos rápidos
+        # Banner superior de accesos rápidos
         banner = QFrame()
         banner.setStyleSheet(
             "background-color: #1E293B; color: #F8FAFC; border-radius: 8px; padding: 6px 12px;"
@@ -1184,10 +1195,8 @@ class CashierWindow(QMainWindow):
         banner_layout = QHBoxLayout(banner)
         banner_layout.setContentsMargins(8, 4, 8, 4)
 
-        lbl_ip_info = QLabel(
-            f"🟢 <b>Servidor Madre Activo:</b> <font color='#38BDF8'>http://{self.local_ip}:{SERVER_PORT}</font>"
-        )
-        lbl_ip_info.setStyleSheet("font-size: 13px;")
+        lbl_app_title = QLabel("<h3><b>🍽️ Sistema de Restaurante & Caja</b></h3>")
+        lbl_app_title.setStyleSheet("color: white;")
 
         btn_menu = QPushButton("🍔 Menú / Productos")
         btn_menu.setStyleSheet(
@@ -1203,10 +1212,26 @@ class CashierWindow(QMainWindow):
         )
         btn_open_folder.clicked.connect(self.open_receipts_folder)
 
-        banner_layout.addWidget(lbl_ip_info)
+        btn_tax = QPushButton("⚙️ IVA (%)")
+        btn_tax.setStyleSheet(
+            "background-color: #334155; color: white; border: 1px solid #475569; "
+            "padding: 5px 10px; border-radius: 4px; font-size: 12px;"
+        )
+        btn_tax.clicked.connect(self.config_tax_dialog)
+
+        btn_about = QPushButton("ℹ️ Info")
+        btn_about.setStyleSheet(
+            "background-color: #334155; color: white; border: 1px solid #475569; "
+            "padding: 5px 10px; border-radius: 4px; font-size: 12px;"
+        )
+        btn_about.clicked.connect(self.show_about_dialog)
+
+        banner_layout.addWidget(lbl_app_title)
         banner_layout.addStretch()
         banner_layout.addWidget(btn_menu)
         banner_layout.addWidget(btn_open_folder)
+        banner_layout.addWidget(btn_tax)
+        banner_layout.addWidget(btn_about)
 
         root_layout.addWidget(banner)
 
@@ -1227,8 +1252,8 @@ class CashierWindow(QMainWindow):
         self.tab_widget = QTabWidget()
         self.tab_widget.setStyleSheet(
             "QTabBar::tab { font-weight: bold; font-size: 13px; padding: 8px 18px; }"
-            "QTabWidget::pane { border: 1px solid #CBD5E1; border-radius: 6px; background: #F8FAFC; }"
         )
+        self.tab_widget.currentChanged.connect(self.on_tab_changed)
         left_panel.addWidget(self.tab_widget)
 
         room_buttons_layout = QHBoxLayout()
@@ -1257,36 +1282,32 @@ class CashierWindow(QMainWindow):
         left_panel.addLayout(room_buttons_layout)
 
         # ====================================================
-        # PANEL DERECHO: DETALLE DE COMANDA Y COBRO
+        # PANEL DERECHO: DETALLE DE COMANDA ACTUAL
         # ====================================================
 
         right_panel = QVBoxLayout()
+        right_panel.setSpacing(8)
 
-        header_right = QHBoxLayout()
+        self.lbl_selected_table = QLabel("<h2><b>Selecciona una Mesa</b></h2>")
+        self.lbl_selected_table.setStyleSheet("color: #1E293B;")
+        right_panel.addWidget(self.lbl_selected_table)
 
-        self.lbl_table_header = QLabel("<h3>Selecciona una mesa</h3>")
-        self.lbl_table_header.setStyleSheet("font-weight: bold; color: #0F172A;")
+        self.lbl_waiter_info = QLabel("Camarero: -")
+        self.lbl_waiter_info.setStyleSheet("color: #64748B; font-size: 13px;")
+        right_panel.addWidget(self.lbl_waiter_info)
 
-        btn_tax = QPushButton("⚙️ IVA (%)")
-        btn_tax.setFixedWidth(90)
-        btn_tax.clicked.connect(self.config_tax_dialog)
-
-        btn_about = QPushButton("ℹ️ Acerca de")
-        btn_about.setFixedWidth(90)
-        btn_about.clicked.connect(self.show_about_dialog)
-
-        header_right.addWidget(self.lbl_table_header)
-        header_right.addStretch()
-        header_right.addWidget(btn_tax)
-        header_right.addWidget(btn_about)
-
-        right_panel.addLayout(header_right)
-
-        self.list_items = QListWidget()
-        self.list_items.setStyleSheet(
-            "font-size: 13px; padding: 6px; border: 1px solid #CBD5E1; border-radius: 6px; background: white;"
-        )
-        right_panel.addWidget(self.list_items)
+        # Tabla de Items de la comanda
+        self.table_items = QTableWidget()
+        self.table_items.setColumnCount(4)
+        self.table_items.setHorizontalHeaderLabels(["Cant.", "Producto", "P. Unit.", "Subtotal"])
+        self.table_items.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.table_items.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.table_items.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.table_items.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.table_items.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table_items.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table_items.setAlternatingRowColors(True)
+        right_panel.addWidget(self.table_items)
 
         # Resumen de totales
         totales_frame = QFrame()
@@ -1310,6 +1331,17 @@ class CashierWindow(QMainWindow):
 
         right_panel.addWidget(totales_frame)
 
+        btn_actions_layout = QHBoxLayout()
+        btn_actions_layout.setSpacing(8)
+
+        btn_cancel_order = QPushButton("🚫 Cancelar Pedido")
+        btn_cancel_order.setStyleSheet(
+            "background-color: #EF4444; color: white; font-weight: bold; "
+            "padding: 14px; font-size: 14px; border-radius: 6px;"
+        )
+        btn_cancel_order.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_cancel_order.clicked.connect(self.cancel_current_order)
+
         btn_pay = QPushButton("💳 / 💵 COBRAR MESA")
         btn_pay.setStyleSheet(
             "background-color: #16A34A; color: white; font-weight: bold; "
@@ -1318,7 +1350,10 @@ class CashierWindow(QMainWindow):
         btn_pay.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_pay.clicked.connect(self.open_payment_dialog)
 
-        right_panel.addWidget(btn_pay)
+        btn_actions_layout.addWidget(btn_cancel_order, stretch=1)
+        btn_actions_layout.addWidget(btn_pay, stretch=2)
+
+        right_panel.addLayout(btn_actions_layout)
 
         # Divisor vertical
         main_layout.addLayout(left_panel, stretch=3)
@@ -1585,9 +1620,13 @@ class CashierWindow(QMainWindow):
             IVA_PERCENTAGE = val
             self.refresh_ui()
 
-    # --------------------------------------------------------
-    # SELECCIÓN Y REFRESCO DE MESAS
-    # --------------------------------------------------------
+    def on_tab_changed(self, index: int):
+        with db_lock:
+            area_ids = list(rooms_db.keys())
+            if 0 <= index < len(area_ids):
+                self.selected_area_id = area_ids[index]
+                self.selected_table_key = None
+        self.refresh_ui()
 
     def select_table(self, area_id: int, table_name: str):
         self.selected_area_id = area_id
@@ -1611,17 +1650,20 @@ class CashierWindow(QMainWindow):
                         else:
                             display_label = f"Mesa {num}"
 
+                        is_selected = (area_id == self.selected_area_id and name == self.selected_table_key)
+                        border_style = "border: 3px solid #38BDF8; font-weight: bold;" if is_selected else "border: 1px solid transparent;"
+
                         if is_occ:
                             btn.setText(f"{display_label}\n${tot:.2f}")
                             btn.setStyleSheet(
-                                "background-color: #DC2626; color: white; font-weight: bold; "
-                                "font-size: 13px; border-radius: 8px;"
+                                f"background-color: #DC2626; color: white; font-weight: bold; "
+                                f"font-size: 13px; border-radius: 8px; {border_style}"
                             )
                         else:
                             btn.setText(f"{display_label}\nLibre")
                             btn.setStyleSheet(
-                                "background-color: #16A34A; color: white; font-weight: bold; "
-                                "font-size: 13px; border-radius: 8px;"
+                                f"background-color: #16A34A; color: white; font-weight: bold; "
+                                f"font-size: 13px; border-radius: 8px; {border_style}"
                             )
 
             data = None
@@ -1640,14 +1682,29 @@ class CashierWindow(QMainWindow):
 
         if data:
             camarero_txt = data.get("camarero") or "Caja"
-            self.lbl_table_header.setText(
-                f"<h3>Detalle: <b>{display_header_name} ({room_name})</b> <font size='3' color='#64748B'>(Atiende: {camarero_txt})</font></h3>"
-            )
+            self.lbl_selected_table.setText(f"<h2><b>{display_header_name} ({room_name})</b></h2>")
+            self.lbl_waiter_info.setText(f"Camarero / Atiende: <b>{camarero_txt}</b>")
 
-            self.list_items.clear()
-            for item in data.get("items", []):
-                subtotal = item["cantidad"] * item["precio"]
-                self.list_items.addItem(f"• {item['nombre']}  x{item['cantidad']}  —  ${subtotal:.2f}")
+            items = data.get("items", [])
+            self.table_items.setRowCount(len(items))
+            for row_idx, item in enumerate(items):
+                cant = item.get("cantidad", 1)
+                precio = item.get("precio", 0.0)
+                subt = cant * precio
+
+                item_cant = QTableWidgetItem(str(cant))
+                item_cant.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.table_items.setItem(row_idx, 0, item_cant)
+
+                self.table_items.setItem(row_idx, 1, QTableWidgetItem(str(item.get("nombre", ""))))
+
+                item_precio = QTableWidgetItem(f"${precio:.2f}")
+                item_precio.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                self.table_items.setItem(row_idx, 2, item_precio)
+
+                item_subt = QTableWidgetItem(f"${subt:.2f}")
+                item_subt.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                self.table_items.setItem(row_idx, 3, item_subt)
 
             subtotal_base = data.get("total", 0.0)
             monto_iva = subtotal_base * (IVA_PERCENTAGE / 100.0)
@@ -1657,8 +1714,9 @@ class CashierWindow(QMainWindow):
             self.lbl_tax_info.setText(f"IVA ({IVA_PERCENTAGE:.1f}%): ${monto_iva:.2f}")
             self.lbl_total.setText(f"Total a Pagar: ${total_final:.2f}")
         else:
-            self.lbl_table_header.setText("<h3>Selecciona una mesa</h3>")
-            self.list_items.clear()
+            self.lbl_selected_table.setText("<h2><b>Selecciona una Mesa</b></h2>")
+            self.lbl_waiter_info.setText("Camarero: -")
+            self.table_items.setRowCount(0)
             self.lbl_subtotal.setText("Subtotal: $0.00")
             self.lbl_tax_info.setText(f"IVA ({IVA_PERCENTAGE:.1f}%): $0.00")
             self.lbl_total.setText("Total a Pagar: $0.00")
@@ -1681,35 +1739,37 @@ class CashierWindow(QMainWindow):
             return
 
         dialog = QDialog(self)
-        dialog.setWindowTitle("Mover / Transferir Mesa")
+        dialog.setWindowTitle(f"Mover Comanda de {self.selected_table_key}")
+        dialog.resize(320, 200)
 
         layout = QVBoxLayout()
-        layout.addWidget(QLabel(f"Mover consumos de <b>{self.selected_table_key} ({room['name']})</b> hacia:"))
+        layout.setSpacing(10)
 
-        cb_target = QComboBox()
-        free_tables = []
-        target_map = {}
+        layout.addWidget(QLabel("<b>Selecciona la sala y mesa de destino:</b>"))
+
+        combo_targets = QComboBox()
+        valid_targets = []
 
         with db_lock:
-            for r_id, r_data in rooms_db.items():
+            for a_id, r_data in rooms_db.items():
                 pfx = r_data.get("prefix", "M").strip()
-                for t_key, t_val in r_data["mesas"].items():
-                    if not (r_id == self.selected_area_id and t_key == self.selected_table_key) and len(t_val.get("items", [])) == 0:
-                        nm = t_val.get("number", 1)
-                        lbl = f"{pfx}{nm} ({r_data['name']})" if (pfx and pfx.upper() != "M") else f"Mesa {nm} ({r_data['name']})"
-                        free_tables.append(lbl)
-                        target_map[lbl] = (r_id, t_key)
+                for num in range(1, r_data.get("count", 10) + 1):
+                    t_k = f"Mesa {num}"
+                    t_val = r_data["mesas"].get(t_k, {"items": []})
+                    if len(t_val.get("items", [])) == 0:
+                        disp = f"{pfx}{num}" if (pfx and pfx.upper() != "M") else f"Mesa {num}"
+                        combo_targets.addItem(f"{r_data['name']} - {disp}")
+                        valid_targets.append((a_id, t_k))
 
-        if not free_tables:
-            QMessageBox.warning(self, "Atención", "No hay mesas libres disponibles.")
+        if not valid_targets:
+            QMessageBox.information(self, "Aviso", "No hay mesas libres disponibles para mover.")
             return
 
-        cb_target.addItems(free_tables)
-        layout.addWidget(cb_target)
+        layout.addWidget(combo_targets)
 
         btn_confirm = QPushButton("Confirmar Traslado")
-        btn_confirm.setStyleSheet("background-color: #2563EB; color: white; font-weight: bold; padding: 8px;")
-        btn_confirm.clicked.connect(lambda: self.execute_move(target_map[cb_target.currentText()], dialog))
+        btn_confirm.setStyleSheet("background-color: #3B82F6; color: white; font-weight: bold; padding: 10px;")
+        btn_confirm.clicked.connect(lambda: self.execute_move(valid_targets[combo_targets.currentIndex()], dialog))
         layout.addWidget(btn_confirm)
 
         dialog.setLayout(layout)
@@ -1747,14 +1807,72 @@ class CashierWindow(QMainWindow):
 
             self.selected_area_id = target_area_id
             self.selected_table_key = target_table_key
+            normalize_rooms_db()
             mark_database_changed()
 
         dialog.accept()
+        self.rebuild_tabs()
+
+        with db_lock:
+            area_ids = list(rooms_db.keys())
+            if target_area_id in area_ids:
+                tab_idx = area_ids.index(target_area_id)
+                self.tab_widget.setCurrentIndex(tab_idx)
+
+        self.select_table(target_area_id, target_table_key)
         self.refresh_ui()
 
     # --------------------------------------------------------
     # COBRO Y FACTURACIÓN
     # --------------------------------------------------------
+
+    def cancel_current_order(self):
+        with db_lock:
+            if not self.selected_area_id:
+                curr_idx = self.tab_widget.currentIndex()
+                area_ids = list(rooms_db.keys())
+                if 0 <= curr_idx < len(area_ids):
+                    self.selected_area_id = area_ids[curr_idx]
+
+            if not self.selected_area_id or not self.selected_table_key:
+                QMessageBox.information(self, "Aviso", "Primero haz clic en la mesa ocupada que deseas cancelar.")
+                return
+
+            room = rooms_db.get(self.selected_area_id)
+            if not room:
+                QMessageBox.warning(self, "Error", "No se encontró la sala seleccionada.")
+                return
+
+            t_data = room["mesas"].get(self.selected_table_key)
+            if not t_data or len(t_data.get("items", [])) == 0:
+                QMessageBox.information(self, "Aviso", "La mesa seleccionada no tiene ningún pedido activo.")
+                return
+
+            prefix = room.get("prefix", "M").strip()
+            num = t_data.get("number", 1)
+            display_name = f"{prefix}{num}" if (prefix and prefix.upper() != "M") else f"Mesa {num}"
+            room_name = room.get("name", "Sala")
+
+        reply = QMessageBox.question(
+            self,
+            "Confirmar Cancelación",
+            f"¿Estás seguro de que deseas cancelar y vaciar el pedido de {display_name} ({room_name})?\n\nEsta acción liberará la mesa en la PC y en los teléfonos móviles.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            with db_lock:
+                room = rooms_db.get(self.selected_area_id)
+                if room and self.selected_table_key in room["mesas"]:
+                    room["mesas"][self.selected_table_key]["items"] = []
+                    room["mesas"][self.selected_table_key]["camarero"] = ""
+                    room["mesas"][self.selected_table_key]["total"] = 0.0
+                    normalize_rooms_db()
+                    mark_database_changed()
+
+            self.refresh_ui()
+            QMessageBox.information(self, "Pedido Cancelado", f"El pedido de {display_name} ha sido cancelado con éxito.")
 
     def open_payment_dialog(self):
         with db_lock:
@@ -1768,36 +1886,60 @@ class CashierWindow(QMainWindow):
         prefix = room.get("prefix", "M").strip()
         num = mesa_data.get("number", 1)
         display_name = f"{prefix}{num}" if (prefix and prefix.upper() != "M") else f"Mesa {num}"
-
         subtotal_base = mesa_data.get("total", 0.0)
-        monto_iva = subtotal_base * (IVA_PERCENTAGE / 100.0)
-        total_due = subtotal_base + monto_iva
 
         dialog = QDialog(self)
-        dialog.setWindowTitle(f"Cobrar {display_name} ({room['name']}) - Total: ${total_due:.2f}")
-        dialog.resize(380, 280)
+        dialog.setWindowTitle(f"Cobrar {display_name} ({room['name']})")
+        dialog.resize(390, 360)
 
         layout = QVBoxLayout()
         layout.setSpacing(10)
 
-        layout.addWidget(QLabel(
-            f"<b>Subtotal:</b> ${subtotal_base:.2f} | <b>IVA ({IVA_PERCENTAGE:.1f}%):</b> ${monto_iva:.2f}<br>"
-            f"<h3><b>TOTAL A PAGAR: ${total_due:.2f}</b></h3>"
-        ))
+        # Configuración de IVA dinámica en el cobro
+        iva_layout = QHBoxLayout()
+        iva_layout.addWidget(QLabel("<b>IVA (%):</b>"))
+        txt_iva = QLineEdit(f"{IVA_PERCENTAGE:.1f}")
+        txt_iva.setFixedWidth(70)
+        iva_layout.addWidget(txt_iva)
+        iva_layout.addStretch()
+        layout.addLayout(iva_layout)
+
+        lbl_summary = QLabel()
+        lbl_summary.setStyleSheet("font-size: 14px; background: #F1F5F9; padding: 10px; border-radius: 6px; border: 1px solid #CBD5E1;")
+        layout.addWidget(lbl_summary)
 
         layout.addWidget(QLabel("<b>Monto en Efectivo ($):</b>"))
         txt_cash = QLineEdit("0.00")
         layout.addWidget(txt_cash)
 
         layout.addWidget(QLabel("<b>Monto en Tarjeta ($):</b>"))
-        txt_card = QLineEdit(f"{total_due:.2f}")
+        txt_card = QLineEdit("0.00")
         layout.addWidget(txt_card)
 
         lbl_change = QLabel("Cambio / Vuelto: $0.00")
         lbl_change.setStyleSheet("font-size: 15px; font-weight: bold; color: #16A34A;")
         layout.addWidget(lbl_change)
 
-        def calculate_change():
+        calculated = {"monto_iva": 0.0, "total_due": subtotal_base}
+
+        def recalculate():
+            global IVA_PERCENTAGE
+            try:
+                pct = float(txt_iva.text()) if txt_iva.text() else 0.0
+            except ValueError:
+                pct = 0.0
+
+            IVA_PERCENTAGE = pct
+            monto_iva = subtotal_base * (pct / 100.0)
+            total_due = subtotal_base + monto_iva
+            calculated["monto_iva"] = monto_iva
+            calculated["total_due"] = total_due
+
+            lbl_summary.setText(
+                f"<b>Subtotal:</b> ${subtotal_base:.2f} | <b>IVA ({pct:.1f}%):</b> ${monto_iva:.2f}<br>"
+                f"<h3><font color='#16A34A'><b>TOTAL A PAGAR: ${total_due:.2f}</b></font></h3>"
+            )
+
             try:
                 cash = float(txt_cash.text()) if txt_cash.text() else 0.0
                 card = float(txt_card.text()) if txt_card.text() else 0.0
@@ -1812,16 +1954,21 @@ class CashierWindow(QMainWindow):
             except ValueError:
                 pass
 
-        txt_cash.textChanged.connect(calculate_change)
-        txt_card.textChanged.connect(calculate_change)
+        txt_iva.textChanged.connect(recalculate)
+        txt_cash.textChanged.connect(recalculate)
+        txt_card.textChanged.connect(recalculate)
+
+        recalculate()
+        txt_card.setText(f"{calculated['total_due']:.2f}")
 
         btn_finish = QPushButton("🖨️ Confirmar Pago y Generar Recibo PDF")
         btn_finish.setStyleSheet(
-            "background-color: #16A34A; color: white; font-weight: bold; padding: 12px; font-size: 14px;"
+            "background-color: #16A34A; color: white; font-weight: bold; padding: 12px; font-size: 14px; border-radius: 6px;"
         )
         btn_finish.clicked.connect(
             lambda: self.process_payment(
-                dialog, txt_cash, txt_card, mesa_data, subtotal_base, monto_iva, total_due, room["name"], display_name
+                dialog, txt_cash, txt_card, mesa_data, subtotal_base,
+                calculated["monto_iva"], calculated["total_due"], room["name"], display_name
             )
         )
         layout.addWidget(btn_finish)

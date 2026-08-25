@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -23,6 +24,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import coil.Coil
+import coil.ImageLoader
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
 import com.example.restaurantepos.data.AppDatabase
 import com.example.restaurantepos.ui.MenuManagementScreen
 import com.example.restaurantepos.ui.OrderScreen
@@ -42,6 +47,23 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         hideSystemUI()
+
+        // Configuración de caché permanente de Coil para fotos instantáneas y offline
+        val imageLoader = ImageLoader.Builder(applicationContext)
+            .memoryCache {
+                MemoryCache.Builder(applicationContext)
+                    .maxSizePercent(0.25)
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(applicationContext.cacheDir.resolve("image_cache"))
+                    .maxSizeBytes(60L * 1024 * 1024)
+                    .build()
+            }
+            .respectCacheHeaders(false)
+            .build()
+        Coil.setImageLoader(imageLoader)
 
         val database = AppDatabase.getDatabase(applicationContext)
         val dao = database.posDao()
@@ -87,6 +109,7 @@ fun RestaurantAppNavHost(viewModel: PosViewModel) {
     val navController = rememberNavController()
     val users by viewModel.users.collectAsState()
     val session by viewModel.currentUserSession.collectAsState()
+    val context = LocalContext.current
 
     NavHost(
         navController = navController,
@@ -148,7 +171,7 @@ fun RestaurantAppNavHost(viewModel: PosViewModel) {
         composable("product_management") {
             ProductManagementScreen(
                 onCreateProduct = { category, name, price, imageUri ->
-                    viewModel.createProduct(category, name, price, imageUri)
+                    viewModel.createProductFromMobile(category, name, price, imageUri, context)
                 },
                 onBack = {
                     navController.safePopBackStack()
@@ -165,7 +188,10 @@ fun RestaurantAppNavHost(viewModel: PosViewModel) {
                 isAdmin = isAdmin,
                 products = products,
                 onUpdateProduct = { updatedProduct ->
-                    viewModel.updateProduct(updatedProduct)
+                    viewModel.updateProductFromMobile(updatedProduct, context)
+                },
+                onDeleteProduct = { productToDelete ->
+                    viewModel.deleteProductFromMobile(productToDelete, context)
                 },
                 onAddProductClick = {
                     if (navController.currentBackStackEntry?.lifecycle?.currentState == Lifecycle.State.RESUMED) {
