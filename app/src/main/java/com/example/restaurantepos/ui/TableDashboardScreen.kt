@@ -7,8 +7,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Assessment
-import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.RestaurantMenu
 import androidx.compose.material.icons.filled.TableBar
 import androidx.compose.material3.*
@@ -45,6 +45,7 @@ fun TableDashboardScreen(
 ) {
     val context = LocalContext.current
     var showEndDayDialog by remember { mutableStateOf(false) }
+    var lastKnownSyncVersion by remember { mutableIntStateOf(-1) }
 
     val currentArea = remember(areas, selectedAreaId) {
         areas.find { it.id == selectedAreaId }
@@ -56,53 +57,70 @@ fun TableDashboardScreen(
         }
     }
 
-    // 🔄 Sincronización continua con el Servidor Madre (PC) cada 2 segundos
+    // 🔄 Sincronización ultrarrápida combinada con el Servidor Madre (PC)
     LaunchedEffect(selectedAreaId, tables) {
         while (true) {
             val currentIp = ExportManager.getPcIp(context)
             if (currentIp.isNotBlank() && currentIp != "192.168.x.xx") {
-
-                // 1. Sincronizar Salas desde la PC Madre
-                ExportManager.fetchAreasFromPc(currentIp) { jsonAreas ->
-                    val pcAreasList = mutableListOf<AreaEntity>()
-                    val pcCountsMap = mutableMapOf<Int, Int>()
-                    for (i in 0 until jsonAreas.length()) {
-                        val obj = jsonAreas.getJSONObject(i)
-                        val id = obj.optInt("id", 0)
-                        val name = obj.optString("name", "")
-                        val prefix = obj.optString("prefix", "M")
-                        val count = obj.optInt("count", 10)
-                        if (name.isNotBlank()) {
-                            pcAreasList.add(AreaEntity(id = id, name = name, prefix = prefix))
-                            pcCountsMap[id] = count
-                        }
-                    }
-                    if (pcAreasList.isNotEmpty()) {
-                        viewModel.syncAreasFromPc(pcAreasList, pcCountsMap)
-                    }
-                }
-
-                // 2. Sincronizar Menú / Productos desde la PC Madre
-                ExportManager.fetchProductsFromPc(currentIp) { jsonProducts ->
-                    val pcProductsList = mutableListOf<ProductEntity>()
-                    for (i in 0 until jsonProducts.length()) {
-                        val obj = jsonProducts.getJSONObject(i)
-                        val id = obj.optInt("id", 0)
-                        val category = obj.optString("category", "General")
-                        val name = obj.optString("name", "")
-                        val price = obj.optDouble("price", 0.0)
-                        if (name.isNotBlank()) {
-                            pcProductsList.add(ProductEntity(id = id, category = category, name = name, price = price))
-                        }
-                    }
-                    if (pcProductsList.isNotEmpty()) {
-                        viewModel.syncProductsFromPc(pcProductsList)
-                    }
-                }
-
-                // 3. Sincronizar Estado de Mesas de la Sala Seleccionada
                 val activeAreaId = selectedAreaId ?: currentArea?.id
-                ExportManager.fetchTablesFromPc(currentIp, areaId = activeAreaId) { jsonTables ->
+                ExportManager.fetchFastSync(
+                    pcIpAddress = currentIp,
+                    areaId = activeAreaId,
+                    currentVersion = lastKnownSyncVersion
+                ) { response ->
+                    if (response.hasChanged) {
+                        lastKnownSyncVersion = response.version
+
+                        // 1. Sincronizar Salas si la PC las actualizó
+                        val areasArray = response.areas
+                        if (areasArray != null && areasArray.length() > 0) {
+                            val pcAreasList = mutableListOf<AreaEntity>()
+                            val pcCountsMap = mutableMapOf<Int, Int>()
+                            for (i in 0 until areasArray.length()) {
+                                val obj = areasArray.getJSONObject(i)
+                                val id = obj.optInt("id", 0)
+                                val name = obj.optString("name", "")
+                                val prefix = obj.optString("prefix", "M")
+                                val count = obj.optInt("count", 10)
+                                if (name.isNotBlank()) {
+                                    pcAreasList.add(AreaEntity(id = id, name = name, prefix = prefix))
+                                    pcCountsMap[id] = count
+                                }
+                            }
+                            if (pcAreasList.isNotEmpty()) {
+                                viewModel.syncAreasFromPc(pcAreasList, pcCountsMap)
+                            }
+                        }
+
+                        // 2. Sincronizar Menú / Productos (incluyendo fotos y borrados)
+                        val productsArray = response.products
+                        if (productsArray != null) {
+                            val pcProductsList = mutableListOf<ProductEntity>()
+                            for (i in 0 until productsArray.length()) {
+                                val obj = productsArray.getJSONObject(i)
+                                val id = obj.optInt("id", 0)
+                                val category = obj.optString("category", "General")
+                                val name = obj.optString("name", "")
+                                val price = obj.optDouble("price", 0.0)
+                                val imageUri = obj.optString("imageUri", "")
+                                if (name.isNotBlank()) {
+                                    pcProductsList.add(
+                                        ProductEntity(
+                                            id = id,
+                                            category = category,
+                                            name = name,
+                                            price = price,
+                                            imageUri = if (imageUri.isNotBlank()) imageUri else null
+                                        )
+                                    )
+                                }
+                            }
+                            viewModel.syncProductsFromPc(pcProductsList)
+                        }
+                    }
+
+                    // 3. Sincronizar Estado de Mesas en tiempo real
+                    val jsonTables = response.tables
                     tables.forEach { table ->
                         val prefix = currentArea?.prefix?.trim() ?: ""
                         val areaName = currentArea?.name?.trim() ?: ""
@@ -125,12 +143,12 @@ fun TableDashboardScreen(
                             val itemsArray = tableData.optJSONArray("items")
                             val pcIsOccupied = itemsArray != null && itemsArray.length() > 0
 
-                            if (table.isOccupied != pcIsOccupied || Math.abs(table.currentTotal - pcTotal) > 0.01) {
+                            if (table.isOccupied != pcIsOccupied || kotlin.math.abs(table.currentTotal - pcTotal) > 0.01) {
                                 val updatedItems = mutableListOf<Pair<ProductEntity, Int>>()
 
                                 if (pcIsOccupied && itemsArray != null) {
-                                    for (i in 0 until itemsArray.length()) {
-                                        val itemObj = itemsArray.getJSONObject(i)
+                                    for (j in 0 until itemsArray.length()) {
+                                        val itemObj = itemsArray.getJSONObject(j)
                                         val nombre = itemObj.optString("nombre", "")
                                         val cantidad = itemObj.optInt("cantidad", 0)
                                         val precio = itemObj.optDouble("precio", 0.0)
@@ -182,7 +200,7 @@ fun TableDashboardScreen(
                         Icon(Icons.Default.RestaurantMenu, contentDescription = "Menú del Sistema")
                     }
                     IconButton(onClick = onLogout) {
-                        Icon(Icons.Default.ExitToApp, contentDescription = "Cerrar sesión")
+                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Cerrar sesión")
                     }
                 }
             )

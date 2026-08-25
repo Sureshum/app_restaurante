@@ -189,12 +189,32 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
     fun syncProductsFromPc(pcProducts: List<ProductEntity>) {
         viewModelScope.launch(Dispatchers.IO) {
             val currentProductsList = dao.getAllProducts().first()
+
+            // 1. Eliminar productos de SQLite que fueron borrados en la PC Madre
+            val pcNames = pcProducts.map { it.name.trim().lowercase() }.toSet()
+            for (localProd in currentProductsList) {
+                if (!pcNames.contains(localProd.name.trim().lowercase())) {
+                    dao.deleteProduct(localProd)
+                }
+            }
+
+            // 2. Insertar nuevos o actualizar modificados (precio, categoría, foto)
             for (pcProd in pcProducts) {
                 val existing = currentProductsList.find { it.name.trim().equals(pcProd.name.trim(), ignoreCase = true) }
                 if (existing == null) {
                     dao.insertProduct(pcProd)
-                } else if (Math.abs(existing.price - pcProd.price) > 0.01 || !existing.category.equals(pcProd.category, ignoreCase = true)) {
-                    dao.updateProduct(existing.copy(price = pcProd.price, category = pcProd.category))
+                } else if (
+                    Math.abs(existing.price - pcProd.price) > 0.01 ||
+                    !existing.category.equals(pcProd.category, ignoreCase = true) ||
+                    existing.imageUri != pcProd.imageUri
+                ) {
+                    dao.updateProduct(
+                        existing.copy(
+                            price = pcProd.price,
+                            category = pcProd.category,
+                            imageUri = pcProd.imageUri
+                        )
+                    )
                 }
             }
         }

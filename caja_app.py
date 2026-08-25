@@ -6,6 +6,7 @@ import copy
 import json
 import socket
 import subprocess
+import shutil
 
 from datetime import datetime
 from typing import List, Optional, Dict
@@ -32,12 +33,16 @@ from PyQt6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QHeaderView,
-    QAbstractItemView
+    QAbstractItemView,
+    QFileDialog
 )
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QSize
+from PyQt6.QtGui import QPixmap, QIcon
+
 import uvicorn
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -51,12 +56,16 @@ DEVELOPER_CONTACT = "ssshum25ssshum25@gmail.com"
 APP_VERSION = "v1.7.0"
 
 CARPETA_RECIBOS = "recibos"
+CARPETA_IMAGENES = "imagenes_productos"
 DATA_FILE = "pos_database.json"
 
 SERVER_HOST = "0.0.0.0"
 SERVER_PORT = 5000
 
 IVA_PERCENTAGE = 16.0
+
+os.makedirs(CARPETA_RECIBOS, exist_ok=True)
+os.makedirs(CARPETA_IMAGENES, exist_ok=True)
 
 db_lock = threading.RLock()
 
@@ -110,6 +119,7 @@ class ProductPayload(BaseModel):
     category: str = "General"
     name: str
     price: float
+    imageUri: Optional[str] = None
 
 
 # ============================================================
@@ -119,8 +129,23 @@ class ProductPayload(BaseModel):
 DEFAULT_ROOMS_DB: Dict[int, dict] = {
     1: {
         "id": 1,
-        "name": "Salon Principal",
-        "prefix": "M",
+        "name": "sala",
+        "prefix": "mesa",
+        "count": 10,
+        "mesas": {
+            f"Mesa {i}": {
+                "number": i,
+                "camarero": "",
+                "items": [],
+                "total": 0.0
+            }
+            for i in range(1, 11)
+        }
+    },
+    2: {
+        "id": 2,
+        "name": "Barra",
+        "prefix": "br",
         "count": 10,
         "mesas": {
             f"Mesa {i}": {
@@ -135,14 +160,14 @@ DEFAULT_ROOMS_DB: Dict[int, dict] = {
 }
 
 DEFAULT_PRODUCTS: List[dict] = [
-    {"id": 1, "category": "Comida", "name": "Hamburguesa Clásica", "price": 85.0},
-    {"id": 2, "category": "Comida", "name": "Pizza Pepperoni", "price": 120.0},
-    {"id": 3, "category": "Comida", "name": "Papas Fritas", "price": 45.0},
-    {"id": 4, "category": "Comida", "name": "Tacos de Bistec (3pz)", "price": 60.0},
-    {"id": 5, "category": "Bebidas", "name": "Refresco Coca-Cola 600ml", "price": 25.0},
-    {"id": 6, "category": "Bebidas", "name": "Agua Fresca Natural", "price": 20.0},
-    {"id": 7, "category": "Bebidas", "name": "Cerveza Corona", "price": 35.0},
-    {"id": 8, "category": "Postres", "name": "Rebanada de Pastel", "price": 40.0}
+    {"id": 1, "category": "Comida", "name": "Hamburguesa Clásica", "price": 85.0, "imageUri": ""},
+    {"id": 2, "category": "Comida", "name": "Pizza Pepperoni", "price": 120.0, "imageUri": ""},
+    {"id": 3, "category": "Comida", "name": "Papas Fritas", "price": 45.0, "imageUri": ""},
+    {"id": 4, "category": "Comida", "name": "Tacos de Bistec (3pz)", "price": 60.0, "imageUri": ""},
+    {"id": 5, "category": "Bebidas", "name": "Refresco Coca-Cola 600ml", "price": 25.0, "imageUri": ""},
+    {"id": 6, "category": "Bebidas", "name": "Agua Fresca Natural", "price": 20.0, "imageUri": ""},
+    {"id": 7, "category": "Bebidas", "name": "Cerveza Corona", "price": 35.0, "imageUri": ""},
+    {"id": 8, "category": "Postres", "name": "Rebanada de Pastel", "price": 40.0, "imageUri": ""}
 ]
 
 rooms_db: Dict[int, dict] = {}
@@ -157,11 +182,9 @@ def normalize_rooms_db():
             count = max(1, int(room.get("count", 10)))
             room["count"] = count
 
-            # Normalizar prefijo
             prefix = room.get("prefix", "M").strip()
             room["prefix"] = prefix if prefix else "M"
 
-            # Recolectar datos existentes por número entero de mesa
             tables_by_number = {}
             for key, val in room.get("mesas", {}).items():
                 num = val.get("number")
@@ -173,12 +196,10 @@ def normalize_rooms_db():
                     val["number"] = num
                     tables_by_number[num] = val
                 else:
-                    # Si hay dos entradas para el mismo número, conservar la que tenga pedidos activos
                     if len(val.get("items", [])) > len(tables_by_number[num].get("items", [])):
                         val["number"] = num
                         tables_by_number[num] = val
 
-            # Reconstruir estrictamente las mesas 1..count
             clean_mesas = {}
             for i in range(1, count + 1):
                 if i in tables_by_number:
@@ -248,9 +269,6 @@ load_database()
 # ============================================================
 
 def find_table_in_rooms(table_identifier: str, preferred_area_id: Optional[int] = None):
-    """
-    Localiza la mesa exacta y su sala correspondiente sin crear duplicados.
-    """
     if not table_identifier:
         return None, None, None, None
 
@@ -258,7 +276,6 @@ def find_table_in_rooms(table_identifier: str, preferred_area_id: Optional[int] 
         digits = ''.join(filter(str.isdigit, str(table_identifier)))
         target_num = int(digits) if digits else 1
 
-        # 1. Si se pasa preferred_area_id, buscar directamente en esa sala
         if preferred_area_id is not None and preferred_area_id in rooms_db:
             r_data = rooms_db[preferred_area_id]
             t_key = f"Mesa {target_num}"
@@ -271,7 +288,6 @@ def find_table_in_rooms(table_identifier: str, preferred_area_id: Optional[int] 
                 }
             return preferred_area_id, r_data["name"], t_key, r_data["mesas"][t_key]
 
-        # 2. Buscar por coincidencia de prefijo
         clean_id = str(table_identifier).strip().lower()
         for area_id, room_data in rooms_db.items():
             pfx = room_data.get("prefix", "").strip().lower()
@@ -286,7 +302,6 @@ def find_table_in_rooms(table_identifier: str, preferred_area_id: Optional[int] 
                     }
                 return area_id, room_data["name"], t_key, room_data["mesas"][t_key]
 
-        # 3. Fallback: Sala por defecto (primera sala)
         first_area_id = list(rooms_db.keys())[0] if rooms_db else 1
         if first_area_id in rooms_db:
             r_data = rooms_db[first_area_id]
@@ -340,7 +355,6 @@ def serialize_areas():
 
 
 def serialize_tables_dict(area_id: Optional[int] = None) -> Dict[str, dict]:
-    """Retorna las mesas indexadas para que Android pueda leerlas con total compatibilidad."""
     with db_lock:
         normalize_rooms_db()
         result = {}
@@ -400,8 +414,6 @@ def generar_recibo_pdf(
     tarjeta: float,
     cambio: float
 ) -> str:
-    os.makedirs(CARPETA_RECIBOS, exist_ok=True)
-
     sanitized_mesa = "".join(c for c in nombre_mesa if c.isalnum() or c in (" ", "_", "-")).strip()
     nombre_archivo = f"Recibo_{sanitized_mesa.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     ruta_completa = os.path.join(CARPETA_RECIBOS, nombre_archivo)
@@ -494,6 +506,9 @@ api.add_middleware(
     allow_headers=["*"],
 )
 
+# Servir archivos estáticos de imágenes para que los teléfonos Android las carguen
+api.mount("/images", StaticFiles(directory=CARPETA_IMAGENES), name="images")
+
 
 @api.get("/")
 def health_check():
@@ -504,6 +519,20 @@ def health_check():
         "sync_version": last_sync_version,
         "local_ip": get_local_ip()
     }
+
+
+@api.get("/sync-fast")
+def sync_fast(areaId: Optional[int] = None, version: int = 0):
+    global last_sync_version
+    with db_lock:
+        needs_full = (version != last_sync_version)
+        return {
+            "version": last_sync_version,
+            "has_changed": needs_full,
+            "areas": serialize_areas() if needs_full else [],
+            "products": products_db if needs_full else [],
+            "tables": serialize_tables_dict(areaId)
+        }
 
 
 @api.get("/areas")
@@ -517,7 +546,6 @@ def insert_area(payload: AreaSyncPayload):
         clean_name = payload.name.strip()
         clean_prefix = payload.prefix.strip() or "M"
 
-        # Si ya existe una sala con el mismo nombre, actualizar prefijo
         for existing_id, existing_data in rooms_db.items():
             if existing_data["name"].strip().lower() == clean_name.lower():
                 existing_data["prefix"] = clean_prefix
@@ -653,7 +681,8 @@ def create_product_endpoint(payload: ProductPayload):
             "id": new_id,
             "category": payload.category.strip() or "General",
             "name": payload.name.strip(),
-            "price": float(payload.price)
+            "price": float(payload.price),
+            "imageUri": payload.imageUri or ""
         }
         products_db.append(new_prod)
         mark_database_changed()
@@ -668,6 +697,8 @@ def update_product_endpoint(product_id: int, payload: ProductPayload):
                 p["category"] = payload.category.strip() or "General"
                 p["name"] = payload.name.strip()
                 p["price"] = float(payload.price)
+                if payload.imageUri is not None:
+                    p["imageUri"] = payload.imageUri
                 mark_database_changed()
                 return p
 
@@ -692,7 +723,6 @@ async def upload_pdf(
     table_id: Optional[str] = Form(None)
 ):
     try:
-        os.makedirs(CARPETA_RECIBOS, exist_ok=True)
         filename = file.filename or f"Recibo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
         safe_filename = os.path.basename(filename)
         file_path = os.path.join(CARPETA_RECIBOS, safe_filename)
@@ -743,9 +773,10 @@ class MenuManagementDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Gestión de Menú y Productos - RestaurantePOS")
-        self.resize(750, 520)
+        self.resize(820, 560)
 
         self.filtered_products = []
+        self.local_ip = get_local_ip()
         self.init_ui()
         self.load_products()
 
@@ -767,12 +798,13 @@ class MenuManagementDialog(QDialog):
         layout.addLayout(top_layout)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["ID", "Categoría", "Nombre del Producto", "Precio ($)"])
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["ID", "Foto", "Categoría", "Nombre del Producto", "Precio ($)"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -834,19 +866,27 @@ class MenuManagementDialog(QDialog):
         for row, prod in enumerate(self.filtered_products):
             item_id = QTableWidgetItem(str(prod["id"]))
             item_id.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            # Icono o estado de foto
+            has_photo = bool(prod.get("imageUri"))
+            item_photo = QTableWidgetItem("📷 Sí" if has_photo else "—")
+            item_photo.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
             item_cat = QTableWidgetItem(prod.get("category", "General"))
             item_name = QTableWidgetItem(prod.get("name", ""))
             item_price = QTableWidgetItem(f"${prod.get('price', 0.0):.2f}")
             item_price.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
             self.table.setItem(row, 0, item_id)
-            self.table.setItem(row, 1, item_cat)
-            self.table.setItem(row, 2, item_name)
-            self.table.setItem(row, 3, item_price)
+            self.table.setItem(row, 1, item_photo)
+            self.table.setItem(row, 2, item_cat)
+            self.table.setItem(row, 3, item_name)
+            self.table.setItem(row, 4, item_price)
 
     def dialog_add_product(self):
         dialog = QDialog(self)
         dialog.setWindowTitle("Añadir Nuevo Producto al Menú")
+        dialog.resize(420, 360)
         form = QFormLayout()
 
         cb_cat = QComboBox()
@@ -861,12 +901,46 @@ class MenuManagementDialog(QDialog):
         txt_price = QLineEdit()
         txt_price.setPlaceholderText("Ej. 45.00")
 
+        # Selector de foto
+        selected_photo_path = [None]
+        lbl_photo_status = QLabel("Sin imagen")
+        lbl_photo_status.setStyleSheet("color: #64748B; font-size: 12px;")
+
+        photo_layout = QHBoxLayout()
+        btn_pick_photo = QPushButton("📁 Seleccionar Foto...")
+        btn_clear_photo = QPushButton("❌ Quitar")
+
+        photo_layout.addWidget(btn_pick_photo)
+        photo_layout.addWidget(btn_clear_photo)
+
+        def pick_photo():
+            file_path, _ = QFileDialog.getOpenFileName(
+                dialog,
+                "Seleccionar Imagen del Producto",
+                "",
+                "Imágenes (*.png *.jpg *.jpeg *.webp *.bmp)"
+            )
+            if file_path:
+                selected_photo_path[0] = file_path
+                lbl_photo_status.setText(f"✓ {os.path.basename(file_path)}")
+                lbl_photo_status.setStyleSheet("color: #16A34A; font-weight: bold; font-size: 12px;")
+
+        def clear_photo():
+            selected_photo_path[0] = None
+            lbl_photo_status.setText("Sin imagen")
+            lbl_photo_status.setStyleSheet("color: #64748B; font-size: 12px;")
+
+        btn_pick_photo.clicked.connect(pick_photo)
+        btn_clear_photo.clicked.connect(clear_photo)
+
         form.addRow("Categoría:", cb_cat)
         form.addRow("Nombre del Producto:", txt_name)
         form.addRow("Precio ($):", txt_price)
+        form.addRow("Foto del Producto:", photo_layout)
+        form.addRow("", lbl_photo_status)
 
         btn_save = QPushButton("Guardar Producto")
-        btn_save.setStyleSheet("background-color: #16A34A; color: white; font-weight: bold; padding: 8px;")
+        btn_save.setStyleSheet("background-color: #16A34A; color: white; font-weight: bold; padding: 10px;")
 
         def save():
             cat = cb_cat.currentText().strip() or "General"
@@ -883,11 +957,24 @@ class MenuManagementDialog(QDialog):
 
             with db_lock:
                 new_id = max([p["id"] for p in products_db], default=0) + 1
+                image_uri = ""
+
+                if selected_photo_path[0]:
+                    ext = os.path.splitext(selected_photo_path[0])[1] or ".jpg"
+                    dest_name = f"prod_{new_id}_{int(datetime.now().timestamp())}{ext}"
+                    dest_file = os.path.join(CARPETA_IMAGENES, dest_name)
+                    try:
+                        shutil.copyfile(selected_photo_path[0], dest_file)
+                        image_uri = f"http://{self.local_ip}:{SERVER_PORT}/images/{dest_name}"
+                    except Exception as e:
+                        print(f"Error copiando imagen: {e}")
+
                 products_db.append({
                     "id": new_id,
                     "category": cat,
                     "name": name,
-                    "price": price
+                    "price": price,
+                    "imageUri": image_uri
                 })
                 mark_database_changed()
 
@@ -910,6 +997,7 @@ class MenuManagementDialog(QDialog):
 
         dialog = QDialog(self)
         dialog.setWindowTitle(f"Editar Producto - {prod['name']}")
+        dialog.resize(420, 360)
         form = QFormLayout()
 
         cb_cat = QComboBox()
@@ -922,12 +1010,49 @@ class MenuManagementDialog(QDialog):
         txt_name = QLineEdit(prod.get("name", ""))
         txt_price = QLineEdit(f"{prod.get('price', 0.0):.2f}")
 
+        selected_photo_path = [None]
+        current_uri = prod.get("imageUri", "")
+        lbl_photo_status = QLabel(f"✓ Imagen existente" if current_uri else "Sin imagen")
+        if current_uri:
+            lbl_photo_status.setStyleSheet("color: #16A34A; font-weight: bold; font-size: 12px;")
+        else:
+            lbl_photo_status.setStyleSheet("color: #64748B; font-size: 12px;")
+
+        photo_layout = QHBoxLayout()
+        btn_pick_photo = QPushButton("📁 Cambiar Foto...")
+        btn_clear_photo = QPushButton("❌ Quitar Foto")
+
+        photo_layout.addWidget(btn_pick_photo)
+        photo_layout.addWidget(btn_clear_photo)
+
+        def pick_photo():
+            file_path, _ = QFileDialog.getOpenFileName(
+                dialog,
+                "Seleccionar Imagen del Producto",
+                "",
+                "Imágenes (*.png *.jpg *.jpeg *.webp *.bmp)"
+            )
+            if file_path:
+                selected_photo_path[0] = file_path
+                lbl_photo_status.setText(f"✓ {os.path.basename(file_path)}")
+                lbl_photo_status.setStyleSheet("color: #16A34A; font-weight: bold; font-size: 12px;")
+
+        def clear_photo():
+            selected_photo_path[0] = "CLEAR"
+            lbl_photo_status.setText("Foto eliminada (se borrará al guardar)")
+            lbl_photo_status.setStyleSheet("color: #DC2626; font-size: 12px;")
+
+        btn_pick_photo.clicked.connect(pick_photo)
+        btn_clear_photo.clicked.connect(clear_photo)
+
         form.addRow("Categoría:", cb_cat)
         form.addRow("Nombre del Producto:", txt_name)
         form.addRow("Precio ($):", txt_price)
+        form.addRow("Foto del Producto:", photo_layout)
+        form.addRow("", lbl_photo_status)
 
         btn_save = QPushButton("Actualizar Producto")
-        btn_save.setStyleSheet("background-color: #2563EB; color: white; font-weight: bold; padding: 8px;")
+        btn_save.setStyleSheet("background-color: #2563EB; color: white; font-weight: bold; padding: 10px;")
 
         def save():
             cat = cb_cat.currentText().strip() or "General"
@@ -948,7 +1073,20 @@ class MenuManagementDialog(QDialog):
                         p["category"] = cat
                         p["name"] = name
                         p["price"] = price
+
+                        if selected_photo_path[0] == "CLEAR":
+                            p["imageUri"] = ""
+                        elif selected_photo_path[0]:
+                            ext = os.path.splitext(selected_photo_path[0])[1] or ".jpg"
+                            dest_name = f"prod_{prod['id']}_{int(datetime.now().timestamp())}{ext}"
+                            dest_file = os.path.join(CARPETA_IMAGENES, dest_name)
+                            try:
+                                shutil.copyfile(selected_photo_path[0], dest_file)
+                                p["imageUri"] = f"http://{self.local_ip}:{SERVER_PORT}/images/{dest_name}"
+                            except Exception as e:
+                                print(f"Error copiando imagen: {e}")
                         break
+
                 mark_database_changed()
 
             dialog.accept()
@@ -1231,7 +1369,6 @@ class CashierWindow(QMainWindow):
                 row = 0
                 col = 0
 
-                # Iteramos estrictamente por número del 1 al count para asegurar unicidad
                 for num in range(1, count + 1):
                     table_key = f"Mesa {num}"
                     t_val = room_data["mesas"].get(table_key, {
@@ -1244,7 +1381,6 @@ class CashierWindow(QMainWindow):
                     is_occ = len(t_val.get("items", [])) > 0
                     total_val = t_val.get("total", 0.0)
 
-                    # Mostrar con el prefijo configurado de la sala (ej. br1, br2 o Mesa 1)
                     if prefix and prefix.upper() != "M":
                         display_label = f"{prefix}{num}"
                     else:

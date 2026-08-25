@@ -276,8 +276,16 @@ fun OrderScreen(
                     ) {
                         Column(modifier = Modifier.padding(6.dp)) {
                             if (!product.imageUri.isNullOrEmpty()) {
+                                val imageModel: Any = remember(product.imageUri) {
+                                    val uri = product.imageUri ?: ""
+                                    if (uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("content://")) {
+                                        uri
+                                    } else {
+                                        File(uri)
+                                    }
+                                }
                                 AsyncImage(
-                                    model = File(product.imageUri),
+                                    model = imageModel,
                                     contentDescription = product.name,
                                     modifier = Modifier
                                         .fillMaxWidth()

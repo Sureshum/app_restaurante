@@ -56,6 +56,9 @@ interface PosDao {
     @Update
     suspend fun updateProduct(product: ProductEntity)
 
+    @Delete
+    suspend fun deleteProduct(product: ProductEntity)
+
 
     // --- Comandas y Reportes ---
     @Query("SELECT * FROM order_items WHERE tableId = :tableId")

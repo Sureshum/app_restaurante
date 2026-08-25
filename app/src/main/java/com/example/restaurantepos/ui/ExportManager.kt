@@ -338,6 +338,64 @@ object ExportManager {
         }
     }
 
+    data class SyncFastResponse(
+        val version: Int,
+        val hasChanged: Boolean,
+        val areas: JSONArray?,
+        val products: JSONArray?,
+        val tables: JSONObject
+    )
+
+    // Sincronización ultrarrápida combinada (Salas, Productos y Mesas en una sola petición)
+    fun fetchFastSync(
+        pcIpAddress: String,
+        areaId: Int? = null,
+        currentVersion: Int = 0,
+        port: Int = 5000,
+        onSuccess: (SyncFastResponse) -> Unit
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val urlStr = if (areaId != null) {
+                    "http://$pcIpAddress:$port/sync-fast?areaId=$areaId&version=$currentVersion"
+                } else {
+                    "http://$pcIpAddress:$port/sync-fast?version=$currentVersion"
+                }
+                val url = URL(urlStr)
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 2500
+                    readTimeout = 2500
+                }
+
+                if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                    val stream = connection.inputStream.bufferedReader().use { it.readText() }
+                    val rootObj = JSONObject(stream)
+                    val version = rootObj.optInt("version", 0)
+                    val hasChanged = rootObj.optBoolean("has_changed", false)
+                    val areasArray = if (hasChanged) rootObj.optJSONArray("areas") else null
+                    val productsArray = if (hasChanged) rootObj.optJSONArray("products") else null
+                    val tablesObj = rootObj.optJSONObject("tables") ?: JSONObject()
+
+                    val result = SyncFastResponse(
+                        version = version,
+                        hasChanged = hasChanged,
+                        areas = areasArray,
+                        products = productsArray,
+                        tables = tablesObj
+                    )
+
+                    withContext(Dispatchers.Main) {
+                        onSuccess(result)
+                    }
+                }
+                connection.disconnect()
+            } catch (e: Exception) {
+                // Silencioso ante pérdidas momentáneas de red
+            }
+        }
+    }
+
     // Consulta el estado de las mesas a la PC (opcionalmente filtrado por sala)
     fun fetchTablesFromPc(
         pcIpAddress: String,
