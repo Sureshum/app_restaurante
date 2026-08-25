@@ -132,49 +132,41 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             val currentAreasList = dao.getAllAreas().first()
 
-            // 1. Eliminar salas que ya no existan en la PC
-            val pcAreaNames = pcAreas.map { it.name.trim().lowercase() }.toSet()
+            // 1. Eliminar salas que ya no existan en la PC Madre
+            val pcAreaIds = pcAreas.map { it.id }.toSet()
             for (localArea in currentAreasList) {
-                if (!pcAreaNames.contains(localArea.name.trim().lowercase())) {
+                if (!pcAreaIds.contains(localArea.id)) {
                     dao.deleteArea(localArea)
                 }
             }
 
-            // 2. Sincronizar y asegurar conteo exacto de mesas por sala
+            // 2. Insertar o actualizar salas con su ID exacto de la PC
             for (pcArea in pcAreas) {
-                val existing = dao.getAllAreas().first().find { it.name.trim().equals(pcArea.name.trim(), ignoreCase = true) }
-                val targetAreaId = if (existing == null) {
-                    dao.insertArea(AreaEntity(id = pcArea.id, name = pcArea.name, prefix = pcArea.prefix)).toInt()
-                } else {
-                    if (existing.prefix != pcArea.prefix) {
-                        dao.insertArea(existing.copy(prefix = pcArea.prefix))
-                    }
-                    existing.id
-                }
+                dao.insertArea(AreaEntity(id = pcArea.id, name = pcArea.name, prefix = pcArea.prefix))
 
-                val existingTables = dao.getTablesForAreaOnce(targetAreaId)
                 val expectedCount = pcTableCounts[pcArea.id] ?: 10
+                val existingTables = dao.getTablesForAreaOnce(pcArea.id)
+                val existingNumbers = existingTables.map { it.number }.toSet()
 
-                // Deduplicar mesas
-                val seenNumbers = mutableSetOf<Int>()
-                val duplicates = mutableListOf<TableEntity>()
-                for (t in existingTables) {
-                    if (!seenNumbers.add(t.number)) {
-                        duplicates.add(t)
+                // Asegurar que existan exactamente las mesas 1..expectedCount con su ID determinista
+                for (num in 1..expectedCount) {
+                    if (!existingNumbers.contains(num)) {
+                        dao.insertTable(
+                            TableEntity(
+                                id = pcArea.id * 1000 + num,
+                                areaId = pcArea.id,
+                                number = num,
+                                isOccupied = false,
+                                currentTotal = 0.0
+                            )
+                        )
                     }
                 }
-                duplicates.forEach { dao.deleteTable(it) }
 
-                val cleanExisting = dao.getTablesForAreaOnce(targetAreaId)
-                val cleanNumbers = cleanExisting.map { it.number }.toSet()
-
-                for (i in 1..expectedCount) {
-                    if (!cleanNumbers.contains(i)) {
-                        dao.insertTable(TableEntity(areaId = targetAreaId, number = i))
-                    }
+                // Eliminar mesas sobrantes (> expectedCount) que no estén ocupadas
+                existingTables.filter { it.number > expectedCount && !it.isOccupied }.forEach {
+                    dao.deleteTable(it)
                 }
-
-                cleanExisting.filter { it.number > expectedCount && !it.isOccupied }.forEach { dao.deleteTable(it) }
             }
 
             if (_selectedAreaId.value == null && pcAreas.isNotEmpty()) {

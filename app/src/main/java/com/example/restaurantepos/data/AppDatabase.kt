@@ -18,7 +18,7 @@ import kotlinx.coroutines.launch
         OrderItemEntity::class,
         DailyReportEntity::class // <-- Agregado
     ],
-    version = 2, // <-- Incrementado a 2 para migración
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -60,7 +60,7 @@ abstract class AppDatabase : RoomDatabase() {
 
                                     for (i in 1..8) {
                                         dao.insertTable(
-                                            TableEntity(areaId = areaId, number = i)
+                                            TableEntity(id = areaId * 1000 + i, areaId = areaId, number = i)
                                         )
                                     }
                                 }

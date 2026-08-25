@@ -359,13 +359,11 @@ def serialize_tables_dict(area_id: Optional[int] = None) -> Dict[str, dict]:
         normalize_rooms_db()
         result = {}
 
-        target_areas = [rooms_db[area_id]] if (area_id is not None and area_id in rooms_db) else list(rooms_db.values())
-
-        for room in target_areas:
+        for room_id, room in rooms_db.items():
             prefix = room.get("prefix", "M").strip()
-            room_id = room["id"]
+            count = room.get("count", 10)
 
-            for i in range(1, room.get("count", 10) + 1):
+            for i in range(1, count + 1):
                 table_key = f"Mesa {i}"
                 table_data = room["mesas"].get(table_key, {
                     "number": i,
@@ -388,13 +386,20 @@ def serialize_tables_dict(area_id: Optional[int] = None) -> Dict[str, dict]:
                     "isOccupied": is_occ
                 }
 
-                result[table_key] = t_dict
-                result[f"Mesa {i}"] = t_dict
-                result[str(i)] = t_dict
-
+                # Indexación unívoca e inmune a colisiones entre salas
+                result[f"area_{room_id}_table_{i}"] = t_dict
+                result[f"{room_id}_{i}"] = t_dict
+                result[f"{room_id}_Mesa {i}"] = t_dict
                 if prefix and prefix.upper() != "M":
-                    result[f"{prefix}{i}"] = t_dict
-                    result[f"{prefix} {i}"] = t_dict
+                    result[f"{room_id}_{prefix}{i}"] = t_dict
+
+                # Compatibilidad si se solicitó específicamente esta sala o como sala activa
+                if area_id is None or area_id == room_id:
+                    if prefix and prefix.upper() != "M":
+                        result[f"{prefix}{i}"] = t_dict
+                        result[f"{prefix} {i}"] = t_dict
+                    result[f"Mesa {i}"] = t_dict
+                    result[str(i)] = t_dict
 
         return result
 
@@ -1748,9 +1753,20 @@ class CashierWindow(QMainWindow):
 
             self.selected_area_id = target_area_id
             self.selected_table_key = target_table_key
+            normalize_rooms_db()
             mark_database_changed()
 
         dialog.accept()
+        self.rebuild_tabs()
+
+        # Cambiar de pestaña al área destino si corresponde
+        with db_lock:
+            area_ids = list(rooms_db.keys())
+            if target_area_id in area_ids:
+                tab_idx = area_ids.index(target_area_id)
+                self.tab_widget.setCurrentIndex(tab_idx)
+
+        self.select_table(target_area_id, target_table_key)
         self.refresh_ui()
 
     # --------------------------------------------------------
