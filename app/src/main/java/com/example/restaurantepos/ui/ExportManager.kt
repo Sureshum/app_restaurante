@@ -33,7 +33,8 @@ object ExportManager {
         totalAmount: Double,
         cashAmount: Double = 0.0,
         cardAmount: Double = totalAmount,
-        waiterName: String = "Camarero"
+        waiterName: String = "Camarero",
+        tableNameDisplay: String? = null
     ): File? {
         val pdfDocument = PdfDocument()
         val pageInfo = PdfDocument.PageInfo.Builder(612, 792, 1).create() // Tamaño Carta (Letter)
@@ -52,9 +53,10 @@ object ExportManager {
         y += 35f
 
         // Encabezado Mesa y Camarero
+        val mesaText = tableNameDisplay ?: "Mesa $tableId"
         paint.textSize = 12f
         paint.textAlign = Paint.Align.LEFT
-        canvas.drawText("Mesa: Mesa $tableId", 60f, y, paint)
+        canvas.drawText("Mesa: $mesaText", 60f, y, paint)
         canvas.drawText("Atendió: $waiterName", 300f, y, paint)
         y += 20f
 
@@ -129,7 +131,8 @@ object ExportManager {
     data class OrderPayloadRequest(
         val mesa: String,
         val camarero: String,
-        val items: List<ItemOrderRequest>
+        val items: List<ItemOrderRequest>,
+        val areaId: Int? = null
     )
 
     // Genera el archivo CSV para Excel
@@ -172,7 +175,14 @@ object ExportManager {
     }
 
     // Envía el PDF automáticamente por red local Wi-Fi a la PC y notifica que se libere la mesa
-    fun sendPdfToPc(pdfFile: File, pcIpAddress: String, tableId: Int? = null, port: Int = 5000) {
+    fun sendPdfToPc(
+        pdfFile: File,
+        pcIpAddress: String,
+        tableId: Int? = null,
+        tableName: String? = null,
+        areaId: Int? = null,
+        port: Int = 5000
+    ) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val boundary = "*****" + System.currentTimeMillis() + "*****"
@@ -213,12 +223,14 @@ object ExportManager {
                     println("PDF enviado exitosamente a la PC")
 
                     // Si se especificó la mesa, enviamos una orden vacía para que se ponga verde (disponible) en la PC
-                    if (tableId != null) {
+                    val finalTableName = tableName ?: if (tableId != null) "Mesa $tableId" else null
+                    if (finalTableName != null) {
                         sendOrderJsonToPc(
                             pcIpAddress = pcIpAddress,
-                            tableName = "Mesa $tableId",
+                            tableName = finalTableName,
                             waiterName = "",
                             itemsList = emptyList(),
+                            areaId = areaId,
                             port = port
                         )
                     }
@@ -277,6 +289,7 @@ object ExportManager {
         tableName: String,
         waiterName: String,
         itemsList: List<ItemOrderRequest>,
+        areaId: Int? = null,
         port: Int = 5000
     ) {
         CoroutineScope(Dispatchers.IO).launch {
@@ -304,6 +317,9 @@ object ExportManager {
                     put("mesa", tableName)
                     put("camarero", waiterName)
                     put("items", jsonItems)
+                    if (areaId != null) {
+                        put("areaId", areaId)
+                    }
                 }
 
                 val writer = OutputStreamWriter(connection.outputStream, "UTF-8")
@@ -322,15 +338,21 @@ object ExportManager {
         }
     }
 
-    // Consulta el estado de las mesas a la PC
+    // Consulta el estado de las mesas a la PC (opcionalmente filtrado por sala)
     fun fetchTablesFromPc(
         pcIpAddress: String,
+        areaId: Int? = null,
         port: Int = 5000,
         onSuccess: (JSONObject) -> Unit
     ) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val url = URL("http://$pcIpAddress:$port/tables")
+                val urlStr = if (areaId != null) {
+                    "http://$pcIpAddress:$port/tables?areaId=$areaId"
+                } else {
+                    "http://$pcIpAddress:$port/tables"
+                }
+                val url = URL(urlStr)
                 val connection = (url.openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
                     connectTimeout = 3000
@@ -356,6 +378,7 @@ object ExportManager {
     fun updateTableCountOnPc(
         pcIpAddress: String,
         newCount: Int,
+        areaId: Int? = null,
         port: Int = 5000
     ) {
         CoroutineScope(Dispatchers.IO).launch {
@@ -371,6 +394,9 @@ object ExportManager {
 
                 val payload = JSONObject().apply {
                     put("count", newCount)
+                    if (areaId != null) {
+                        put("areaId", areaId)
+                    }
                 }
 
                 val writer = OutputStreamWriter(connection.outputStream, "UTF-8")
@@ -389,4 +415,156 @@ object ExportManager {
         }
     }
 
+    // --- SINCRONIZACIÓN DE SALAS / ÁREAS ---
+
+    fun fetchAreasFromPc(
+        pcIpAddress: String,
+        port: Int = 5000,
+        onSuccess: (JSONArray) -> Unit
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val url = URL("http://$pcIpAddress:$port/areas")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 3000
+                    readTimeout = 3000
+                }
+
+                if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                    val stream = connection.inputStream.bufferedReader().use { it.readText() }
+                    val jsonArray = JSONArray(stream)
+
+                    withContext(Dispatchers.Main) {
+                        onSuccess(jsonArray)
+                    }
+                }
+                connection.disconnect()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun createAreaOnPc(
+        pcIpAddress: String,
+        name: String,
+        prefix: String,
+        port: Int = 5000
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val url = URL("http://$pcIpAddress:$port/areas")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                    doOutput = true
+                    connectTimeout = 4000
+                    readTimeout = 4000
+                }
+
+                val payload = JSONObject().apply {
+                    put("name", name)
+                    put("prefix", prefix)
+                }
+
+                val writer = OutputStreamWriter(connection.outputStream, "UTF-8")
+                writer.write(payload.toString())
+                writer.flush()
+                writer.close()
+                connection.responseCode
+                connection.disconnect()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun deleteAreaOnPc(
+        pcIpAddress: String,
+        areaId: Int,
+        port: Int = 5000
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val url = URL("http://$pcIpAddress:$port/areas/$areaId")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "DELETE"
+                    connectTimeout = 4000
+                    readTimeout = 4000
+                }
+                connection.responseCode
+                connection.disconnect()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    // --- SINCRONIZACIÓN DE MENÚ Y PRODUCTOS ---
+
+    fun fetchProductsFromPc(
+        pcIpAddress: String,
+        port: Int = 5000,
+        onSuccess: (JSONArray) -> Unit
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val url = URL("http://$pcIpAddress:$port/products")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 3000
+                    readTimeout = 3000
+                }
+
+                if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                    val stream = connection.inputStream.bufferedReader().use { it.readText() }
+                    val jsonArray = JSONArray(stream)
+
+                    withContext(Dispatchers.Main) {
+                        onSuccess(jsonArray)
+                    }
+                }
+                connection.disconnect()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun createProductOnPc(
+        pcIpAddress: String,
+        category: String,
+        name: String,
+        price: Double,
+        port: Int = 5000
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val url = URL("http://$pcIpAddress:$port/products")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                    doOutput = true
+                    connectTimeout = 4000
+                    readTimeout = 4000
+                }
+
+                val payload = JSONObject().apply {
+                    put("category", category)
+                    put("name", name)
+                    put("price", price)
+                }
+
+                val writer = OutputStreamWriter(connection.outputStream, "UTF-8")
+                writer.write(payload.toString())
+                writer.flush()
+                writer.close()
+                connection.responseCode
+                connection.disconnect()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
 }

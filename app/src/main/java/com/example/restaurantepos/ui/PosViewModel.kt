@@ -46,7 +46,6 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
-            // CORRECCIÓN: Usar .first() en lugar de un collect continuo para evitar restablecer el área y las mesas en bucle
             val areaList = areas.first()
             if (_selectedAreaId.value == null && areaList.isNotEmpty()) {
                 selectArea(areaList.first().id)
@@ -101,62 +100,10 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
     fun selectArea(areaId: Int) {
         _selectedAreaId.value = areaId
         viewModelScope.launch(Dispatchers.IO) {
-            dao.getTablesByArea(areaId).collect {
-                _currentTables.value = it
+            dao.getTablesByArea(areaId).collect { rawTables ->
+                val distinctTables = rawTables.distinctBy { it.number }.sortedBy { it.number }
+                _currentTables.value = distinctTables
             }
-        }
-    }
-
-    fun addTable() {
-        val areaId = _selectedAreaId.value ?: return
-        viewModelScope.launch(Dispatchers.IO) {
-            val count = _currentTables.value.size
-            dao.insertTable(
-                TableEntity(
-                    areaId = areaId,
-                    number = count + 1,
-                    currentTotal = 0.0,
-                    isOccupied = false
-                )
-            )
-        }
-    }
-
-    fun removeTable() {
-        val areaId = _selectedAreaId.value ?: return
-        viewModelScope.launch(Dispatchers.IO) {
-            val lastTable = _currentTables.value.lastOrNull()
-            if (lastTable != null && !lastTable.isOccupied) {
-                dao.deleteTable(lastTable)
-            }
-        }
-    }
-
-    fun setTableCount(count: Int) {
-        val areaId = _selectedAreaId.value ?: return
-        viewModelScope.launch(Dispatchers.IO) {
-            val currentCount = _currentTables.value.size
-            if (count > currentCount) {
-                for (i in (currentCount + 1)..count) {
-                    dao.insertTable(
-                        TableEntity(
-                            areaId = areaId,
-                            number = i,
-                            currentTotal = 0.0,
-                            isOccupied = false
-                        )
-                    )
-                }
-            } else if (count < currentCount) {
-                val tablesToRemove = _currentTables.value.takeLast(currentCount - count)
-                tablesToRemove.filter { !it.isOccupied }.forEach { dao.deleteTable(it) }
-            }
-        }
-    }
-
-    fun createArea(name: String, prefix: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            dao.insertArea(AreaEntity(name = name, prefix = prefix))
         }
     }
 
@@ -179,11 +126,76 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
         }
     }
 
-    fun deleteArea(area: AreaEntity) {
+    // --- SINCRONIZACIÓN DESDE EL SERVIDOR MADRE (PC) ---
+
+    fun syncAreasFromPc(pcAreas: List<AreaEntity>, pcTableCounts: Map<Int, Int> = emptyMap()) {
         viewModelScope.launch(Dispatchers.IO) {
-            dao.deleteArea(area)
-            if (_selectedAreaId.value == area.id) {
-                _selectedAreaId.value = areas.value.firstOrNull { it.id != area.id }?.id
+            val currentAreasList = dao.getAllAreas().first()
+
+            // 1. Eliminar salas que ya no existan en la PC
+            val pcAreaNames = pcAreas.map { it.name.trim().lowercase() }.toSet()
+            for (localArea in currentAreasList) {
+                if (!pcAreaNames.contains(localArea.name.trim().lowercase())) {
+                    dao.deleteArea(localArea)
+                }
+            }
+
+            // 2. Sincronizar y asegurar conteo exacto de mesas por sala
+            for (pcArea in pcAreas) {
+                val existing = dao.getAllAreas().first().find { it.name.trim().equals(pcArea.name.trim(), ignoreCase = true) }
+                val targetAreaId = if (existing == null) {
+                    dao.insertArea(AreaEntity(id = pcArea.id, name = pcArea.name, prefix = pcArea.prefix)).toInt()
+                } else {
+                    if (existing.prefix != pcArea.prefix) {
+                        dao.insertArea(existing.copy(prefix = pcArea.prefix))
+                    }
+                    existing.id
+                }
+
+                val existingTables = dao.getTablesForAreaOnce(targetAreaId)
+                val expectedCount = pcTableCounts[pcArea.id] ?: 10
+
+                // Deduplicar mesas
+                val seenNumbers = mutableSetOf<Int>()
+                val duplicates = mutableListOf<TableEntity>()
+                for (t in existingTables) {
+                    if (!seenNumbers.add(t.number)) {
+                        duplicates.add(t)
+                    }
+                }
+                duplicates.forEach { dao.deleteTable(it) }
+
+                val cleanExisting = dao.getTablesForAreaOnce(targetAreaId)
+                val cleanNumbers = cleanExisting.map { it.number }.toSet()
+
+                for (i in 1..expectedCount) {
+                    if (!cleanNumbers.contains(i)) {
+                        dao.insertTable(TableEntity(areaId = targetAreaId, number = i))
+                    }
+                }
+
+                cleanExisting.filter { it.number > expectedCount && !it.isOccupied }.forEach { dao.deleteTable(it) }
+            }
+
+            if (_selectedAreaId.value == null && pcAreas.isNotEmpty()) {
+                val firstId = dao.getAllAreas().first().firstOrNull()?.id
+                if (firstId != null) {
+                    selectArea(firstId)
+                }
+            }
+        }
+    }
+
+    fun syncProductsFromPc(pcProducts: List<ProductEntity>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val currentProductsList = dao.getAllProducts().first()
+            for (pcProd in pcProducts) {
+                val existing = currentProductsList.find { it.name.trim().equals(pcProd.name.trim(), ignoreCase = true) }
+                if (existing == null) {
+                    dao.insertProduct(pcProd)
+                } else if (Math.abs(existing.price - pcProd.price) > 0.01 || !existing.category.equals(pcProd.category, ignoreCase = true)) {
+                    dao.updateProduct(existing.copy(price = pcProd.price, category = pcProd.category))
+                }
             }
         }
     }
@@ -219,13 +231,8 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
 
     fun payTableDirectly(tableId: Int, items: List<Pair<ProductEntity, Int>>, total: Double) {
         viewModelScope.launch(Dispatchers.IO) {
-            // 1. Marcar los ítems existentes como pagados para el reporte de cierre diario
             dao.markOrderItemsAsPaid(tableId)
-
-            // 2. Limpiar los ítems activos de la mesa
             dao.clearOrderItemsForTable(tableId)
-
-            // 3. Liberar la mesa (poner en disponible)
             dao.updateTableStatus(tableId, total = 0.0, isOccupied = false)
         }
     }

@@ -33,7 +33,7 @@ interface PosDao {
 
 
     // --- Mesas ---
-    @Query("SELECT * FROM tables WHERE areaId = :areaId")
+    @Query("SELECT * FROM tables WHERE areaId = :areaId ORDER BY number ASC")
     fun getTablesByArea(areaId: Int): Flow<List<TableEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -73,7 +73,7 @@ interface PosDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertDailyReport(report: DailyReportEntity): Long
 
-    @Query("SELECT * FROM tables WHERE areaId = :areaId")
+    @Query("SELECT * FROM tables WHERE areaId = :areaId ORDER BY number ASC")
     suspend fun getTablesForAreaOnce(areaId: Int): List<TableEntity>
 
     @Query("SELECT * FROM order_items WHERE tableId = -1")

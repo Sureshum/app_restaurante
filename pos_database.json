@@ -1,0 +1,160 @@
+{
+  "rooms": {
+    "1": {
+      "id": 1,
+      "name": "sala",
+      "prefix": "mesa",
+      "count": 10,
+      "mesas": {
+        "Mesa 1": {
+          "number": 1,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 2": {
+          "number": 2,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 3": {
+          "number": 3,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 4": {
+          "number": 4,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 5": {
+          "number": 5,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 6": {
+          "number": 6,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 7": {
+          "number": 7,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 8": {
+          "number": 8,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 9": {
+          "number": 9,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 10": {
+          "number": 10,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        }
+      }
+    },
+    "2": {
+      "id": 2,
+      "name": "Barra",
+      "prefix": "br",
+      "count": 10,
+      "mesas": {
+        "Mesa 1": {
+          "number": 1,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 2": {
+          "number": 2,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 3": {
+          "number": 3,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 4": {
+          "number": 4,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 5": {
+          "number": 5,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 6": {
+          "number": 6,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 7": {
+          "number": 7,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 8": {
+          "number": 8,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 9": {
+          "number": 9,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 10": {
+          "number": 10,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        }
+      }
+    }
+  },
+  "products": [
+    {
+      "id": 1,
+      "category": "Comida",
+      "name": "Tacos al Pastor",
+      "price": 55.0
+    },
+    {
+      "id": 2,
+      "category": "Bebidas",
+      "name": "Agua de Horchata",
+      "price": 25.0
+    },
+    {
+      "id": 3,
+      "category": "Postres",
+      "name": "Flan Napolitano",
+      "price": 35.0
+    }
+  ]
+}

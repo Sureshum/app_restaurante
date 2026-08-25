@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.example.restaurantepos.data.AreaEntity
 import com.example.restaurantepos.data.OrderItemEntity
 import com.example.restaurantepos.data.ProductEntity
 import com.example.restaurantepos.data.TableEntity
@@ -40,7 +41,8 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrderScreen(
-    table: TableEntity, // <-- Se cambia tableId por la entidad TableEntity
+    table: TableEntity,
+    area: AreaEntity? = null,
     products: List<ProductEntity>,
     existingOrderItems: List<OrderItemEntity>,
     waiterName: String = "Camarero",
@@ -87,6 +89,10 @@ fun OrderScreen(
     var isNavigatingBack by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
+    val areaPrefix = area?.prefix?.trim() ?: ""
+    val tableNameToSend = if (areaPrefix.isNotBlank()) "$areaPrefix${table.number}" else "Mesa ${table.number}"
+    val tableDisplayName = if (areaPrefix.isNotBlank()) "$areaPrefix${table.number} • ${area?.name ?: ""}" else "Mesa ${table.number}"
+
     val handleSave = {
         if (!isNavigatingBack) {
             isNavigatingBack = true
@@ -102,12 +108,12 @@ fun OrderScreen(
                         )
                     }
 
-                    // FIX: Enviamos "Mesa ${table.number}" para coincidir con la nomenclatura de la PC
                     ExportManager.sendOrderJsonToPc(
                         pcIpAddress = currentIp,
-                        tableName = "Mesa ${table.number}",
+                        tableName = tableNameToSend,
                         waiterName = waiterName,
-                        itemsList = jsonItems
+                        itemsList = jsonItems,
+                        areaId = table.areaId
                     )
                 }
 
@@ -129,7 +135,8 @@ fun OrderScreen(
                 if (currentIp.isNotBlank() && currentIp != "192.168.x.xx") {
                     val pdfFile = ExportManager.generatePdfReceipt(
                         context = context,
-                        tableId = table.number, // FIX: Usar el número visual de la mesa en el reporte/PDF
+                        tableId = table.number,
+                        tableNameDisplay = tableDisplayName,
                         items = itemsList,
                         totalAmount = totalAmount,
                         waiterName = waiterName
@@ -139,7 +146,9 @@ fun OrderScreen(
                         ExportManager.sendPdfToPc(
                             pdfFile = pdfFile,
                             pcIpAddress = currentIp,
-                            tableId = table.number // FIX: Mismo identificador que la PC espera
+                            tableId = table.number,
+                            tableName = tableNameToSend,
+                            areaId = table.areaId
                         )
                     }
                 }
@@ -155,7 +164,7 @@ fun OrderScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Comanda • Mesa ${table.number}", fontWeight = FontWeight.Bold) },
+                title = { Text("Comanda • $tableDisplayName", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = { handleSave() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
@@ -323,7 +332,7 @@ fun OrderScreen(
                         .padding(16.dp)
                 ) {
                     Text(
-                        "Factura • Mesa ${table.number}",
+                        "Factura • $tableDisplayName",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )

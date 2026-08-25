@@ -126,17 +126,11 @@ fun RestaurantAppNavHost(viewModel: PosViewModel) {
                 tables = tables,
                 products = products,
                 onSelectArea = { areaId -> viewModel.selectArea(areaId) },
-                onAddTable = { viewModel.addTable() },
-                onRemoveTable = { viewModel.removeTable() },
-                onSetTableCount = { count -> viewModel.setTableCount(count) },
                 onTableClick = { tableId ->
                     if (navController.currentBackStackEntry?.lifecycle?.currentState == Lifecycle.State.RESUMED) {
                         navController.navigate("order_screen/$tableId")
                     }
                 },
-                onCreateArea = { name, prefix -> viewModel.createArea(name, prefix) },
-                onDeleteArea = { area -> viewModel.deleteArea(area) },
-                onCreateProduct = { cat, name, price -> viewModel.createProduct(cat, name, price) },
                 onOpenSystemMenu = {
                     if (navController.currentBackStackEntry?.lifecycle?.currentState == Lifecycle.State.RESUMED) {
                         navController.navigate("menu_management")
@@ -189,17 +183,20 @@ fun RestaurantAppNavHost(viewModel: PosViewModel) {
             arguments = listOf(navArgument("tableId") { type = NavType.IntType })
         ) { backStackEntry ->
             val tableId = backStackEntry.arguments?.getInt("tableId") ?: 0
+            val areas by viewModel.areas.collectAsState()
             val tables by viewModel.currentTables.collectAsState()
             val products by viewModel.products.collectAsState()
             val orderItems by viewModel.getOrderItemsForTable(tableId)
                 .collectAsState(initial = emptyList())
 
             val targetTable = tables.find { it.id == tableId }
+            val currentArea = areas.find { it.id == targetTable?.areaId }
             val currentWaiterName = session?.userName ?: "Camarero"
 
             if (targetTable != null) {
                 OrderScreen(
                     table = targetTable,
+                    area = currentArea,
                     products = products,
                     existingOrderItems = orderItems,
                     waiterName = currentWaiterName,
