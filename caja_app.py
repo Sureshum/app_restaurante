@@ -70,6 +70,10 @@ CARPETA_RECIBOS = os.path.join(BASE_DIR, "recibos")
 CARPETA_IMAGENES = os.path.join(BASE_DIR, "imagenes_productos")
 DATA_FILE = os.path.join(BASE_DIR, "pos_database.json")
 
+# Escucha en 0.0.0.0 para que el teléfono pueda conectar por la red local.
+# IMPORTANTE (seguridad): NO abras el puerto SERVER_PORT en el router/firewall
+# hacia Internet; esta API no tiene autenticación y solo debe ser accesible
+# dentro de tu red local. Restringe el firewall a tu rango LAN.
 SERVER_HOST = "0.0.0.0"
 SERVER_PORT = 5000
 
@@ -631,10 +635,10 @@ api = FastAPI(
 
 api.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 # Servir archivos estáticos de imágenes para que los teléfonos Android las carguen
