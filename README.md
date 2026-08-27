@@ -4,7 +4,7 @@
 
 ## 👨‍💻 Autoría y Créditos
 
-Este proyecto fue desarrollado de forma independiente por **Sureshum**. Todos los derechos reservados.
+Este proyecto fue desarrollado de forma independiente por **Sureshum**.
 
 * **Desarrollador:** Sureshum
 * **Contacto / Soporte:** ssshum25ssshum25@gmail.com
@@ -59,19 +59,26 @@ import="uvicorn.loops.auto" --hidden-import="uvicorn.protocols" --hidden-import=
 ⚙️ Conectar los Teléfonos con la Computadora
 ---
 Para que los celulares puedan enviar los pedidos a la caja, todos los dispositivos deben estar conectados a la misma red Wi-Fi del local.
-Abre la aplicación de la caja en la computadora; en la barra superior se mostrará la dirección IP asignada a la PC (ejemplo: 192.xxx.x.xx).Si prefieres verificarla manualmente en Windows, abre la consola (CMD/PowerShell) y ejecuta:
+
+Abre la aplicación de la caja en la computadora; en la barra superior se mostrará la dirección IP asignada a la PC (ejemplo: 192.xxx.x.xx).Si prefieres verificarla manualmente en Windows, 
+
+abre la consola (CMD/PowerShell) y ejecuta:
 ```PowerShell
 ipconfig
 ```
+---
 Copia la dirección de la IPv4.En el teléfono del camarero, abre la aplicación Android, ingresa a Configuración y guarda esa misma dirección IP.
 A partir de ese momento, cada pedido enviado se sincronizará automáticamente con la PC.
----
+
 
 ## ❓ Preguntas Frecuentes
 ¿Qué hago si la computadora no recibe los pedidos de los celulares? 
-Asegúrate de que el teléfono esté conectado a la misma red Wi-Fi y de que el Firewall de Windows permita el tráfico por el puerto 5000 en la PC.
+
+* Asegúrate de que el teléfono esté conectado a la misma red Wi-Fi y de que el Firewall de Windows permita el tráfico por el puerto 5000 en la PC.
+
 ¿Dónde se guardan las facturas y recibos generados? 
-Dentro de la carpeta del programa en la computadora se crea automáticamente una carpeta llamada recibos, donde se almacenan los archivos PDF firmados con la fecha y hora de cada transacción.
+
+* Dentro de la carpeta del programa en la computadora se crea automáticamente una carpeta llamada recibos, donde se almacenan los archivos PDF firmados con la fecha y hora de cada transacción.
 
 ---
 ## 🖥️ Compatibilidad y Dispositivos
@@ -104,27 +111,39 @@ Dentro de la carpeta del programa en la computadora se crea automáticamente una
 | **Arquitectura de Red** | REST API (HTTP / JSON en Red Local) |
 | **Empaquetado PC** | PyInstaller |
 
+
+## 📁 Estructura del Proyecto
+
 ```text
-com.example.restaurantepos/
+app_restaurante/
+├── app/                           # Módulo Cliente Android
+│   └── src/main/java/com/example/restaurante/
+│       ├── data/                  # Persistencia local y modelos (Room DB)
+│       │   ├── AppDatabase.kt     # Base de datos SQLite / Room
+│       │   ├── Entities.kt        # Modelos de datos del sistema
+│       │   ├── PosDao.kt          # DAO para operaciones generales del POS
+│       │   ├── OrderDao.kt        # DAO para comandas y reportes
+│       │   └── SecurityUtils.kt   # Seguridad y cifrado/hashing de PINs
+│       │
+│       ├── ui/                    # Interfaz de usuario (Jetpack Compose)
+│       │   ├── MainActivity.kt            # Punto de entrada y navegación
+│       │   ├── PosViewModel.kt            # Estado global y lógica de negocio
+│       │   ├── TableDashboardScreen.kt   # Vista principal y control de mesas
+│       │   ├── OrderScreen.kt            # Gestión de comandas por mesa
+│       │   ├── MenuManagementScreen.kt    # Edición y administración del menú
+│       │   ├── ProductManagementScreen.kt # Registro de productos
+│       │   ├── UserSelectionScreen.kt     # Autenticación de usuarios por PIN
+│       │   ├── UserSession.kt             # Control de sesión activa
+│       │   ├── DailyReportEntity.kt       # Manejo de datos de cierre diario
+│       │   ├── ExportManager.kt          # Cliente HTTP para envío a la PC
+│       │   ├── ConfigIpDialog.kt          # Diálogo de configuración IP del servidor
+│       │   └── EndDayDialog.kt            # Diálogo de confirmación de cierre diario
+│       │
+│       └── AndroidManifest.xml    # Permisos de red y configuración del sistema
 │
-├── data/                       # Capa de Datos (Room DB & Modelos)
-│   ├── AppDatabase.kt          # Instancia principal de SQLite/Room
-│   ├── Entities.kt             # Entidades: ProductEntity, OrderItemEntity, etc.
-│   ├── PosDao.kt               # Data Access Object para consultas generales
-│   └── OrderDao.kt             # Consultas de comandas y reportes
-│
-├── ui/                         # Capa de Presentación (Jetpack Compose)
-│   ├── MainActivity.kt         # NavHost y gestión de rutas
-│   ├── PosViewModel.kt         # Lógica de negocio y estado global
-│   ├── OrderScreen.kt          # Interfaz de comanda y cobranza por mesa
-│   ├── MenuManagementScreen.kt # Catálogo y edición del menú
-│   ├── TableDashboardScreen.kt # Panel principal de áreas, mesas y polling
-│   ├── ProductManagementScreen.kt # Formulario de registro de productos
-│   └── UserSelectionScreen.kt  # Pantalla de inicio de sesión por PIN
-│
-└── utils/                      # Utilidades y Red
-    ├── ExportManager.kt        # Generación de PDF y peticiones HTTP local
-    └── SecurityUtils.kt        # Funciones de hash y seguridad para PINs
+├── caja_app.py                    # Servidor FastAPI + Interfaz PyQt6 (PC Windows)
+├── recibos/                       # Almacenamiento local de facturas generadas en PDF
+└── imagenes_productos/            # Directorio de imágenes persistidas del catálogo
 ```
 <p align="center">
   <img src="https://media1.tenor.com/m/qiWJ5Ivkq9IAAAAd/nerissa-cute-dance-rissa-cute-dance.gif" alt="Demostración POS" width="250"/>
