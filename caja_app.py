@@ -1495,7 +1495,7 @@ class CashierWindow(QMainWindow):
         self.local_ip = get_local_ip()
 
         self.setWindowTitle(
-            f"RestaurantePOS - Central de Caja ({APP_VERSION}) | IP: {self.local_ip}:{SERVER_PORT}"
+            f"restaurantSSS - Central de Caja ({APP_VERSION}) | IP: {self.local_ip}:{SERVER_PORT}"
         )
         self.resize(1200, 740)
 
@@ -2459,7 +2459,7 @@ class CashierWindow(QMainWindow):
         QMessageBox.about(
             self,
             "Acerca del Sistema",
-            f"<h2>RestaurantePOS - Central de Caja</h2>"
+            f"<h2>restaurantSSS - Central de Caja</h2>"
             f"<p><b>Versión:</b> {APP_VERSION}</p>"
             f"<p><b>Desarrollador:</b> {DEVELOPER_NAME}</p>"
             f"<p><b>Contacto / Soporte:</b> {DEVELOPER_CONTACT}</p>"
