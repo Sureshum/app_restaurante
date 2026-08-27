@@ -27,23 +27,22 @@ Este proyecto fue desarrollado de forma independiente por **Sureshum**. Todos lo
 ## 📱 ¿Cómo está estructurado el sistema?
 
 El proyecto consta de dos partes principales que se comunican en red local:
-
-1. **📱 App Móvil (Android - Cliente):** Utilizada por los camareros para seleccionar las mesas, navegar el menú, tomar comandas y enviarlas en tiempo real.
-2. **💻 Servidor y Central de Caja (Windows - PC):** Instalado en la computadora de la caja. Incluye una interfaz de control visual (PyQt6) y un servidor HTTP (FastAPI) que recibe los pedidos, actualiza el mapa de mesas en tiempo real y genera/guarda los recibos en formato PDF.
+**📱 App Móvil (Android - Cliente):** Utilizada por los camareros para seleccionar las mesas, navegar el menú, tomar comandas y enviarlas en tiempo real.
+**💻 Servidor y Central de Caja (Windows - PC):** Instalado en la computadora de la caja. Incluye una interfaz de control visual (PyQt6) y un servidor HTTP (FastAPI) que recibe los pedidos, actualiza el mapa de mesas en tiempo real y genera/guarda los recibos en formato PDF.
 
 ---
 
 ## 🚀 Guía de Instalación Rápida (Paso a Paso)
 
 ### Paso 1: Instalar la App Móvil en los Teléfonos (Android)
-1. Ve a la sección **Releases (Lanzamientos)** a la derecha de esta página en GitHub.
-2. Descarga el archivo ejecutable móvil **`.apk`**.
-3. Transfiérelo e instálalo en los teléfonos de los camareros (si el sistema solicita permiso para "Instalar aplicaciones desconocidas", presiona **Aceptar**).
+* Ve a la sección **Releases (Lanzamientos)** a la derecha de esta página en GitHub.
+* Descarga el archivo ejecutable móvil **`.apk`**.
+* Transfiérelo e instálalo en los teléfonos de los camareros (si el sistema solicita permiso para "Instalar aplicaciones desconocidas", presiona **Aceptar**).
 
 ### Paso 2: Ejecutar el Servidor de Caja en la Computadora (Windows)
-1. En la misma sección de **Releases**, descarga el archivo comprimido del servidor **`.zip`**.
-2. Descomprime la carpeta en la computadora de la caja central.
-3. Abre la carpeta descomprimida y ejecuta **`caja_app.exe`**. Verás la interfaz gráfica del mapa de mesas y el servidor de red se iniciará automáticamente.
+* En la misma sección de **Releases**, descarga el archivo comprimido del servidor **`.zip`**.
+* Descomprime la carpeta en la computadora de la caja central.
+* Abre la carpeta descomprimida y ejecuta **`caja_app.exe`**. Verás la interfaz gráfica del mapa de mesas y el servidor de red se iniciará automáticamente.
 
 ---
 
@@ -58,6 +57,7 @@ import="uvicorn.loops.auto" --hidden-import="uvicorn.protocols" --hidden-import=
 ```
 
 ⚙️ Conectar los Teléfonos con la Computadora
+---
 Para que los celulares puedan enviar los pedidos a la caja, todos los dispositivos deben estar conectados a la misma red Wi-Fi del local.
 Abre la aplicación de la caja en la computadora; en la barra superior se mostrará la dirección IP asignada a la PC (ejemplo: 192.xxx.x.xx).Si prefieres verificarla manualmente en Windows, abre la consola (CMD/PowerShell) y ejecuta:
 ```PowerShell
