@@ -27,8 +27,11 @@ Este proyecto fue desarrollado de forma independiente por **Sureshum**.
 ## 📱 ¿Cómo está estructurado el sistema?
 
 El proyecto consta de dos partes principales que se comunican en red local:
+
 **📱 App Móvil (Android - Cliente):** Utilizada por los camareros para seleccionar las mesas, navegar el menú, tomar comandas y enviarlas en tiempo real.
-**💻 Servidor y Central de Caja (Windows - PC):** Instalado en la computadora de la caja. Incluye una interfaz de control visual (PyQt6) y un servidor HTTP (FastAPI) que recibe los pedidos, actualiza el mapa de mesas en tiempo real y genera/guarda los recibos en formato PDF.
+
+**💻 Servidor y Central de Caja (Windows - PC):** Instalado en la computadora de la caja. Incluye una interfaz de control visual (PyQt6) y un servidor HTTP (FastAPI) que recibe los pedidos, 
+actualiza el mapa de mesas en tiempo real y genera/guarda los recibos en formato PDF.
 
 ---
 
