@@ -51,6 +51,15 @@ fun TableDashboardScreen(
         areas.find { it.id == selectedAreaId }
     }
 
+    // Valores "vivos" para usar dentro del bucle de polling: el LaunchedEffect
+    // captura las variables una sola vez, así que para que la sincronización vea
+    // siempre los datos más recientes (mesas, productos, área activa) se usan
+    // estas referencias actualizadas automáticamente en cada recomposición.
+    val liveTables by rememberUpdatedState(tables)
+    val liveProducts by rememberUpdatedState(products)
+    val liveCurrentArea by rememberUpdatedState(currentArea)
+    val liveSelectedAreaId by rememberUpdatedState(selectedAreaId)
+
     LaunchedEffect(areas) {
         if (selectedAreaId == null && areas.isNotEmpty()) {
             onSelectArea(areas.first().id)
@@ -62,15 +71,45 @@ fun TableDashboardScreen(
         while (true) {
             val currentIp = ExportManager.getPcIp(context)
             if (currentIp.isNotBlank() && currentIp != "192.168.x.xx") {
-                val activeAreaId = selectedAreaId ?: currentArea?.id
+                val activeAreaId = liveSelectedAreaId ?: liveCurrentArea?.id
                 ExportManager.fetchFastSync(
                     pcIpAddress = currentIp,
                     areaId = activeAreaId,
                     currentVersion = lastKnownSyncVersion
                 ) { response ->
-                    if (response.hasChanged) {
-                        lastKnownSyncVersion = response.version
+                    lastKnownSyncVersion = response.version
 
+                    // Importar las ventas del día desde la PC (fuente unificada del
+                    // Cierre de Día) y detectar si la PC finalizó el día.
+                    viewModel.handlePcDayReset(response.dayReset)
+                    val dailySalesArray = response.dailySales
+                    if (dailySalesArray != null) {
+                        val pcItems = mutableListOf<OrderItemEntity>()
+                        for (i in 0 until dailySalesArray.length()) {
+                            val saleObj = dailySalesArray.getJSONObject(i)
+                            val itemsArray = saleObj.optJSONArray("items") ?: continue
+                            for (j in 0 until itemsArray.length()) {
+                                val itemObj = itemsArray.getJSONObject(j)
+                                val nombre = itemObj.optString("nombre", "")
+                                val cantidad = itemObj.optInt("cantidad", 0)
+                                val precio = itemObj.optDouble("precio", 0.0)
+                                if (nombre.isNotBlank() && cantidad > 0) {
+                                    repeat(cantidad) {
+                                        pcItems.add(
+                                            OrderItemEntity(
+                                                tableId = -1,
+                                                productName = nombre,
+                                                price = precio
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        viewModel.updatePcDailySales(pcItems)
+                    }
+
+                    if (response.hasChanged) {
                         // 1. Sincronizar Salas si la PC las actualizó
                         val areasArray = response.areas
                         if (areasArray != null && areasArray.length() > 0) {
@@ -117,73 +156,82 @@ fun TableDashboardScreen(
                             }
                             viewModel.syncProductsFromPc(pcProductsList)
                         }
-                    }
+                        }
 
-                    // 3. Sincronizar Estado de Mesas en tiempo real de forma aislada por sala
-                    val jsonTables = response.tables
-                    val targetAreaId = selectedAreaId ?: currentArea?.id
-                    if (targetAreaId != null) {
-                        tables.forEach { table ->
-                            // IMPORTANTE: Solo actualizar la mesa si coincide con la sala activa para evitar mezclar salas
-                            if (table.areaId == targetAreaId) {
-                                val prefix = currentArea?.prefix?.trim() ?: ""
-                                val keyPrefix = if (prefix.isNotBlank() && prefix.uppercase() != "M") "$prefix${table.number}" else "Mesa ${table.number}"
-                                val keyAreaNum = "${table.areaId}_${table.number}"
-                                val keyExact = "area_${table.areaId}_table_${table.number}"
+                        // 3. Sincronizar Estado de Mesas SIEMPRE en cada ciclo de polling.
+                        //    /sync-fast devuelve el estado actual de mesas aunque has_changed
+                        //    sea false, así los cambios hechos en la PC (cancelar, mover,
+                        //    pagar) llegan al teléfono de inmediato en lugar de esperar a que
+                        //    cambie la versión global.
+                        val jsonTables = response.tables
+                        val targetAreaId = liveSelectedAreaId ?: liveCurrentArea?.id
+                        if (targetAreaId != null) {
+                            liveTables.forEach { table ->
+                                // IMPORTANTE: Solo actualizar la mesa si coincide con la sala activa para evitar mezclar salas
+                                if (table.areaId == targetAreaId) {
+                                    // No sobrescribir mesas recién modificadas localmente
+                                    // (evita que la mesa "vuelva a ocuparse" justo después de pagarla/cancelarla)
+                                    if (viewModel.isTableLocallyChanged(table.id)) {
+                                        return@forEach
+                                    }
+                                    val prefix = liveCurrentArea?.prefix?.trim() ?: ""
+                                    val keyPrefix = if (prefix.isNotBlank() && prefix.uppercase() != "M") "$prefix${table.number}" else "Mesa ${table.number}"
+                                    val keyAreaNum = "${table.areaId}_${table.number}"
+                                    val keyExact = "area_${table.areaId}_table_${table.number}"
 
-                                val activeKey = when {
-                                    jsonTables.has(keyExact) -> keyExact
-                                    jsonTables.has(keyAreaNum) -> keyAreaNum
-                                    jsonTables.has(keyPrefix) -> keyPrefix
-                                    jsonTables.has("Mesa ${table.number}") -> "Mesa ${table.number}"
-                                    jsonTables.has("${table.number}") -> "${table.number}"
-                                    else -> null
-                                }
+                                    val activeKey = when {
+                                        jsonTables.has(keyExact) -> keyExact
+                                        jsonTables.has(keyAreaNum) -> keyAreaNum
+                                        jsonTables.has(keyPrefix) -> keyPrefix
+                                        jsonTables.has("Mesa ${table.number}") -> "Mesa ${table.number}"
+                                        jsonTables.has("${table.number}") -> "${table.number}"
+                                        else -> null
+                                    }
 
-                                if (activeKey != null) {
-                                    val tableData = jsonTables.getJSONObject(activeKey)
-                                    val pcTotal = tableData.optDouble("total", 0.0)
-                                    val itemsArray = tableData.optJSONArray("items")
-                                    val pcIsOccupied = itemsArray != null && itemsArray.length() > 0
+                                    if (activeKey != null) {
+                                        val tableData = jsonTables.getJSONObject(activeKey)
+                                        val pcTotal = tableData.optDouble("total", 0.0)
+                                        val itemsArray = tableData.optJSONArray("items")
+                                        val pcIsOccupied = itemsArray != null && itemsArray.length() > 0
 
-                                    if (table.isOccupied != pcIsOccupied || kotlin.math.abs(table.currentTotal - pcTotal) > 0.01) {
-                                        val updatedItems = mutableListOf<Pair<ProductEntity, Int>>()
+                                        if (table.isOccupied != pcIsOccupied || kotlin.math.abs(table.currentTotal - pcTotal) > 0.01) {
+                                            val updatedItems = mutableListOf<Pair<ProductEntity, Int>>()
 
-                                        if (pcIsOccupied && itemsArray != null) {
-                                            for (j in 0 until itemsArray.length()) {
-                                                val itemObj = itemsArray.getJSONObject(j)
-                                                val nombre = itemObj.optString("nombre", "")
-                                                val cantidad = itemObj.optInt("cantidad", 0)
-                                                val precio = itemObj.optDouble("precio", 0.0)
+                                            if (pcIsOccupied && itemsArray != null) {
+                                                for (j in 0 until itemsArray.length()) {
+                                                    val itemObj = itemsArray.getJSONObject(j)
+                                                    val nombre = itemObj.optString("nombre", "")
+                                                    val cantidad = itemObj.optInt("cantidad", 0)
+                                                    val precio = itemObj.optDouble("precio", 0.0)
 
-                                                if (nombre.isNotBlank() && cantidad > 0) {
-                                                    val matchedProduct = products.find { it.name.equals(nombre, ignoreCase = true) }
-                                                        ?: ProductEntity(id = 0, category = "General", name = nombre, price = precio)
-                                                    updatedItems.add(Pair(matchedProduct, cantidad))
+                                                    if (nombre.isNotBlank() && cantidad > 0) {
+                                                        val matchedProduct = liveProducts.find { it.name.equals(nombre, ignoreCase = true) }
+                                                            ?: ProductEntity(id = 0, category = "General", name = nombre, price = precio)
+                                                        updatedItems.add(Pair(matchedProduct, cantidad))
+                                                    }
                                                 }
                                             }
-                                        }
 
-                                        viewModel.saveOrderForTable(table.id, updatedItems, if (pcIsOccupied) pcTotal else 0.0)
+                                            viewModel.saveOrderForTable(table.id, updatedItems, if (pcIsOccupied) pcTotal else 0.0)
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
                 }
             }
-            delay(2000)
+            delay(800)
         }
     }
 
-    val pendingPaidItems by viewModel.pendingPaidItems.collectAsState()
+    val combinedEndDayItems by viewModel.combinedEndDayItems.collectAsState()
 
     if (showEndDayDialog) {
         EndDayDialog(
-            pendingItems = pendingPaidItems,
+            pendingItems = combinedEndDayItems,
             onDismiss = { showEndDayDialog = false },
             onConfirmEndDay = { totalItems, totalRevenue ->
-                viewModel.closeDayAndSaveReport(totalItems, totalRevenue) {
+                viewModel.closeDayAndSaveReport(context, totalItems, totalRevenue) {
                     showEndDayDialog = false
                 }
             }

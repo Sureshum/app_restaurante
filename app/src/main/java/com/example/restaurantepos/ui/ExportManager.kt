@@ -338,12 +338,111 @@ object ExportManager {
         }
     }
 
+    // Registra una venta realizada desde el teléfono para que aparezca
+    // en el reporte de Cierre de Día de la PC (además de liberar la mesa)
+    fun registerSaleOnPc(
+        pcIpAddress: String,
+        mesa: String,
+        sala: String,
+        camarero: String,
+        itemsList: List<ItemOrderRequest>,
+        efectivo: Double,
+        tarjeta: Double,
+        areaId: Int? = null,
+        port: Int = 5000,
+        onResult: ((Boolean) -> Unit)? = null
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            var ok = false
+            try {
+                val url = URL("http://$pcIpAddress:$port/sale")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                    doOutput = true
+                    connectTimeout = 5000
+                    readTimeout = 5000
+                }
+
+                val jsonItems = JSONArray()
+                itemsList.forEach { item ->
+                    val jsonItem = JSONObject().apply {
+                        put("nombre", item.nombre)
+                        put("cantidad", item.cantidad)
+                        put("precio", item.precio)
+                    }
+                    jsonItems.put(jsonItem)
+                }
+
+                val payload = JSONObject().apply {
+                    put("mesa", mesa)
+                    put("sala", sala)
+                    put("camarero", camarero)
+                    put("items", jsonItems)
+                    put("efectivo", efectivo)
+                    put("tarjeta", tarjeta)
+                    if (areaId != null) {
+                        put("areaId", areaId)
+                    }
+                }
+
+                val writer = OutputStreamWriter(connection.outputStream, "UTF-8")
+                writer.write(payload.toString())
+                writer.flush()
+                writer.close()
+
+                if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                    println("Venta registrada en la caja")
+                    ok = true
+                }
+                connection.disconnect()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            withContext(Dispatchers.Main) {
+                onResult?.invoke(ok)
+            }
+        }
+    }
+
+    // Notifica a la PC que se finalizó el día desde el teléfono (limpia sus ventas)
+    fun registerDayResetOnPc(
+        pcIpAddress: String,
+        port: Int = 5000,
+        onResult: ((Boolean) -> Unit)? = null
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            var ok = false
+            try {
+                val url = URL("http://$pcIpAddress:$port/reset-day")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 5000
+                    readTimeout = 5000
+                    doOutput = true
+                }
+                if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                    println("Día finalizado en la PC")
+                    ok = true
+                }
+                connection.disconnect()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            withContext(Dispatchers.Main) {
+                onResult?.invoke(ok)
+            }
+        }
+    }
+
     data class SyncFastResponse(
         val version: Int,
         val hasChanged: Boolean,
         val areas: JSONArray?,
         val products: JSONArray?,
-        val tables: JSONObject
+        val tables: JSONObject,
+        val dailySales: JSONArray?,
+        val dayReset: Double
     )
 
     // Sincronización ultrarrápida combinada (Salas, Productos y Mesas en una sola petición)
@@ -376,13 +475,17 @@ object ExportManager {
                     val areasArray = if (hasChanged) rootObj.optJSONArray("areas") else null
                     val productsArray = if (hasChanged) rootObj.optJSONArray("products") else null
                     val tablesObj = rootObj.optJSONObject("tables") ?: JSONObject()
+                    val dailySalesObj = rootObj.optJSONArray("daily_sales")
+                    val dayReset = rootObj.optDouble("day_reset", 0.0)
 
                     val result = SyncFastResponse(
                         version = version,
                         hasChanged = hasChanged,
                         areas = areasArray,
                         products = productsArray,
-                        tables = tablesObj
+                        tables = tablesObj,
+                        dailySales = dailySalesObj,
+                        dayReset = dayReset
                     )
 
                     withContext(Dispatchers.Main) {

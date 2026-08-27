@@ -182,6 +182,24 @@ fun OrderScreen(
                             areaId = table.areaId
                         )
                     }
+
+                    // Registrar la venta en la PC para que aparezca en el Cierre de Día
+                    ExportManager.registerSaleOnPc(
+                        pcIpAddress = currentIp,
+                        mesa = tableNameToSend,
+                        sala = area?.name ?: "",
+                        camarero = waiterName,
+                        itemsList = itemsList.map {
+                            ExportManager.ItemOrderRequest(
+                                nombre = it.first.name.trim(),
+                                cantidad = it.second,
+                                precio = it.first.price
+                            )
+                        },
+                        efectivo = 0.0,
+                        tarjeta = totalAmount,
+                        areaId = table.areaId
+                    )
                 }
 
                 withContext(Dispatchers.Main) {

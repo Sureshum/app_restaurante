@@ -2,6 +2,7 @@ package com.example.restaurantepos.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.content.Context
 import com.example.restaurantepos.data.AreaEntity
 import com.example.restaurantepos.data.DailyReportEntity
 import com.example.restaurantepos.data.OrderItemEntity
@@ -11,6 +12,7 @@ import com.example.restaurantepos.data.SecurityUtils
 import com.example.restaurantepos.data.TableEntity
 import com.example.restaurantepos.data.UserEntity
 import com.example.restaurantepos.data.UserRole
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flatMapLatest
@@ -21,6 +23,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -54,6 +57,20 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
 
     private val _currentUserSession = MutableStateFlow<ActiveSession?>(null)
     val currentUserSession: StateFlow<ActiveSession?> = _currentUserSession.asStateFlow()
+
+    // Registro de mesas modificadas localmente (para impedir que el polling
+    // sobrescriba el estado local con datos viejos de la PC justo después
+    // de pagar, cancelar o guardar una comanda)
+    private val localTableChanges = ConcurrentHashMap<Int, Long>()
+
+    fun markTableLocallyChanged(tableId: Int) {
+        localTableChanges[tableId] = System.currentTimeMillis()
+    }
+
+    fun isTableLocallyChanged(tableId: Int, withinMs: Long = 1200): Boolean {
+        val t = localTableChanges[tableId] ?: return false
+        return (System.currentTimeMillis() - t) < withinMs
+    }
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
@@ -292,6 +309,7 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
 
     fun saveOrderForTable(tableId: Int, items: List<Pair<ProductEntity, Int>>, total: Double) {
         viewModelScope.launch(Dispatchers.IO) {
+            markTableLocallyChanged(tableId)
             dao.clearOrderItemsForTable(tableId)
 
             if (items.isNotEmpty() && total > 0.0) {
@@ -316,13 +334,81 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
 
     fun payTableDirectly(tableId: Int, items: List<Pair<ProductEntity, Int>>, total: Double) {
         viewModelScope.launch(Dispatchers.IO) {
-            dao.markOrderItemsAsPaid(tableId)
+            markTableLocallyChanged(tableId)
+            // Eliminar cualquier item sin pagar que quedara en la mesa (para no duplicar el conteo)
             dao.clearOrderItemsForTable(tableId)
+            // Registrar los items vendidos con tableId = -1 (pagados) para que
+            // aparezcan en el Cierre de Día del teléfono, aunque no se haya
+            // enviado la comanda previamente.
+            for ((product, qty) in items) {
+                repeat(qty) {
+                    dao.insertOrderItem(
+                        OrderItemEntity(
+                            tableId = -1,
+                            productName = product.name.trim(),
+                            price = product.price,
+                            courseGroup = "General"
+                        )
+                    )
+                }
+            }
             dao.updateTableStatus(tableId, total = 0.0, isOccupied = false)
         }
     }
 
-    fun closeDayAndSaveReport(totalItems: Int, totalRevenue: Double, onFinished: () -> Unit) {
+    // Ventas del día provenientes de la PC (fuente unificada del cierre de día).
+    // La PC acumula las ventas cobradas en la PC Y las cobradas en el teléfono
+    // (que se envían vía /sale), así ambos lados muestran lo mismo.
+    private val _pcDailyItems = MutableStateFlow<List<OrderItemEntity>>(emptyList())
+    val pcDailyItems: StateFlow<List<OrderItemEntity>> = _pcDailyItems.asStateFlow()
+
+    // Marca del último "finalizar día" realizado en la PC, para que el teléfono lo detecte
+    // y se reinicie también (sincronización del botón finalizar día).
+    private val _pcDayReset = MutableStateFlow(0.0)
+
+    // Items combinados para el Cierre de Día: ventas de la PC + ventas locales del
+    // teléfono que todavía no están reflejadas en la PC (para evitar duplicar, ya que
+    // las ventas del teléfono también se envían a la PC vía /sale).
+    val combinedEndDayItems: StateFlow<List<OrderItemEntity>> = combine(
+        pendingPaidItems,
+        _pcDailyItems
+    ) { localItems, pcItems ->
+        val pcQty = pcItems.groupingBy { it.productName.trim().lowercase() }.eachCount()
+        val result = pcItems.toMutableList()
+        val localCounts = mutableMapOf<String, Int>()
+        for (item in localItems) {
+            val key = item.productName.trim().lowercase()
+            val localSoFar = localCounts.getOrDefault(key, 0)
+            val pcCubierto = pcQty.getOrDefault(key, 0)
+            if (localSoFar + 1 > pcCubierto) {
+                result.add(item)
+            }
+            localCounts[key] = localSoFar + 1
+        }
+        result
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun updatePcDailySales(sales: List<OrderItemEntity>) {
+        _pcDailyItems.value = sales
+    }
+
+    // Cuando la PC finaliza el día, limpiamos también nuestros registros locales.
+    fun handlePcDayReset(resetTs: Double) {
+        if (resetTs > _pcDayReset.value) {
+            _pcDayReset.value = resetTs
+            _pcDailyItems.value = emptyList()
+            viewModelScope.launch(Dispatchers.IO) {
+                dao.clearAllPaidOrderItems()
+            }
+        }
+    }
+
+    fun closeDayAndSaveReport(
+        context: Context,
+        totalItems: Int,
+        totalRevenue: Double,
+        onFinished: () -> Unit
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             dao.insertDailyReport(
                 DailyReportEntity(
@@ -331,6 +417,14 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
                 )
             )
             dao.clearAllPaidOrderItems()
+            _pcDailyItems.value = emptyList()
+
+            // Sincronizar el cierre con la PC: finalizar el día también en ella.
+            val pcIp = ExportManager.getPcIp(context)
+            if (pcIp.isNotBlank() && pcIp != "192.168.x.xx") {
+                ExportManager.registerDayResetOnPc(pcIp)
+            }
+
             withContext(Dispatchers.Main) {
                 onFinished()
             }

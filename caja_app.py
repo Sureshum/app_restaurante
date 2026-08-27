@@ -133,6 +133,22 @@ class ProductPayload(BaseModel):
     imageUri: Optional[str] = None
 
 
+class SaleItemPayload(BaseModel):
+    nombre: str
+    cantidad: Optional[int] = 1
+    precio: float = 0.0
+
+
+class SalePayload(BaseModel):
+    mesa: str
+    sala: Optional[str] = ""
+    camarero: Optional[str] = ""
+    items: List[SaleItemPayload] = []
+    efectivo: float = 0.0
+    tarjeta: float = 0.0
+    areaId: Optional[int] = None
+
+
 # ============================================================
 # BASE DE DATOS MADRE (SERVIDOR PRINCIPAL)
 # ============================================================
@@ -185,6 +201,7 @@ rooms_db: Dict[int, dict] = {}
 products_db: List[dict] = []
 daily_sales_db: List[dict] = []
 last_sync_version = 0
+last_day_reset_ts = 0.0
 
 
 def normalize_rooms_db():
@@ -236,7 +253,8 @@ def save_database():
                 "rooms": rooms_db,
                 "products": products_db,
                 "daily_sales": daily_sales_db,
-                "iva_percentage": IVA_PERCENTAGE
+                "iva_percentage": IVA_PERCENTAGE,
+                "day_reset_ts": last_day_reset_ts
             }
             with open(DATA_FILE, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -245,7 +263,7 @@ def save_database():
 
 
 def load_database():
-    global rooms_db, products_db, daily_sales_db, IVA_PERCENTAGE
+    global rooms_db, products_db, daily_sales_db, IVA_PERCENTAGE, last_day_reset_ts
     with db_lock:
         if os.path.exists(DATA_FILE):
             try:
@@ -257,6 +275,7 @@ def load_database():
                         products_db = raw_data.get("products", copy.deepcopy(DEFAULT_PRODUCTS))
                         daily_sales_db = raw_data.get("daily_sales", [])
                         IVA_PERCENTAGE = raw_data.get("iva_percentage", 16.0)
+                        last_day_reset_ts = float(raw_data.get("day_reset_ts", 0.0))
                     else:
                         rooms_db = {int(k): v for k, v in raw_data.items()}
                         products_db = copy.deepcopy(DEFAULT_PRODUCTS)
@@ -643,7 +662,9 @@ def sync_fast(areaId: Optional[int] = None, version: int = 0):
             "has_changed": needs_full,
             "areas": serialize_areas() if needs_full else [],
             "products": products_db if needs_full else [],
-            "tables": serialize_tables_dict(areaId)
+            "tables": serialize_tables_dict(areaId),
+            "daily_sales": [dict(s) for s in daily_sales_db],
+            "day_reset": last_day_reset_ts
         }
 
 
@@ -773,6 +794,70 @@ def receive_order(payload: OrderPayload):
         "status": "ok",
         "message": "Comanda procesada",
         "sync_version": last_sync_version
+    }
+
+
+@api.post("/sale")
+def register_sale(payload: SalePayload):
+    global last_sync_version
+    with db_lock:
+        items = [
+            {
+                "nombre": item.nombre.strip(),
+                "cantidad": max(1, int(item.cantidad or 1)),
+                "precio": float(item.precio or 0.0)
+            }
+            for item in payload.items
+            if item.nombre and item.nombre.strip() and float(item.precio or 0.0) > 0
+        ]
+
+        subtotal = sum(i["cantidad"] * i["precio"] for i in items)
+        monto_iva = subtotal * (IVA_PERCENTAGE / 100.0)
+        total_due = subtotal + monto_iva
+        efectivo = float(payload.efectivo or 0.0)
+        tarjeta = float(payload.tarjeta or 0.0)
+        cambio = max(0.0, (efectivo + tarjeta) - total_due)
+
+        sala = (payload.sala or "").strip()
+        if not sala and payload.areaId is not None and payload.areaId in rooms_db:
+            sala = rooms_db[payload.areaId]["name"]
+
+        sale_record = {
+            "id": int(time.time() * 1000),
+            "fecha_hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "mesa": (payload.mesa or "Mesa").strip(),
+            "sala": sala,
+            "camarero": (payload.camarero or "").strip() or "Caja",
+            "items": items,
+            "subtotal": subtotal,
+            "iva": monto_iva,
+            "total": total_due,
+            "efectivo": efectivo,
+            "tarjeta": tarjeta,
+            "cambio": cambio
+        }
+        daily_sales_db.append(sale_record)
+        mark_database_changed()
+        save_database()
+
+    return {
+        "status": "ok",
+        "message": "Venta registrada",
+        "sync_version": last_sync_version
+    }
+
+
+@api.post("/reset-day")
+def reset_day_endpoint():
+    global last_day_reset_ts
+    with db_lock:
+        daily_sales_db.clear()
+        last_day_reset_ts = time.time()
+        save_database()
+    return {
+        "status": "ok",
+        "message": "Día finalizado",
+        "day_reset": last_day_reset_ts
     }
 
 
@@ -1007,6 +1092,7 @@ class CierreDiaDialog(QDialog):
             QMessageBox.warning(self, "Error", f"No se pudo generar el reporte PDF: {e}")
 
     def reset_day(self):
+        global last_day_reset_ts
         with db_lock:
             sales_count = len(daily_sales_db)
 
@@ -1029,6 +1115,7 @@ class CierreDiaDialog(QDialog):
                 except Exception:
                     pass
                 daily_sales_db.clear()
+                last_day_reset_ts = time.time()
                 mark_database_changed()
 
             QMessageBox.information(self, "Día Cerrado", "✅ ¡Día finalizado con éxito! La caja está lista para el próximo turno.")
@@ -2013,25 +2100,45 @@ class CashierWindow(QMainWindow):
 
         layout.addWidget(QLabel("<b>Selecciona la sala y mesa de destino:</b>"))
 
+        combo_salas = QComboBox()
         combo_targets = QComboBox()
         valid_targets = []
 
         with db_lock:
             for a_id, r_data in rooms_db.items():
+                combo_salas.addItem(r_data.get("name", "Sala"), a_id)
+
+        def repopulate_tables():
+            combo_targets.clear()
+            valid_targets.clear()
+            a_id = combo_salas.currentData()
+            if a_id is None:
+                return
+            with db_lock:
+                r_data = rooms_db.get(a_id)
+                if not r_data:
+                    return
                 pfx = r_data.get("prefix", "M").strip()
                 for num in range(1, r_data.get("count", 10) + 1):
                     t_k = f"Mesa {num}"
                     t_val = r_data["mesas"].get(t_k, {"items": []})
                     if len(t_val.get("items", [])) == 0:
                         disp = f"{pfx}{num}" if (pfx and pfx.upper() != "M") else f"Mesa {num}"
-                        combo_targets.addItem(f"{r_data['name']} - {disp}")
+                        combo_targets.addItem(disp)
                         valid_targets.append((a_id, t_k))
+
+        combo_salas.currentIndexChanged.connect(repopulate_tables)
+
+        layout.addWidget(QLabel("Sala de destino:"))
+        layout.addWidget(combo_salas)
+        layout.addWidget(QLabel("Mesa de destino:"))
+        layout.addWidget(combo_targets)
+
+        repopulate_tables()
 
         if not valid_targets:
             QMessageBox.information(self, "Aviso", "No hay mesas libres disponibles para mover.")
             return
-
-        layout.addWidget(combo_targets)
 
         btn_confirm = QPushButton("Confirmar Traslado")
         btn_confirm.setStyleSheet("background-color: #3B82F6; color: white; font-weight: bold; padding: 10px;")

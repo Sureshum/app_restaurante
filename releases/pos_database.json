@@ -1,0 +1,201 @@
+{
+  "rooms": {
+    "1": {
+      "id": 1,
+      "name": "sala",
+      "prefix": "mesa",
+      "count": 10,
+      "mesas": {
+        "Mesa 1": {
+          "number": 1,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 2": {
+          "number": 2,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 3": {
+          "number": 3,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 4": {
+          "number": 4,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 5": {
+          "number": 5,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 6": {
+          "number": 6,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 7": {
+          "number": 7,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 8": {
+          "number": 8,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 9": {
+          "number": 9,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 10": {
+          "number": 10,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        }
+      }
+    },
+    "2": {
+      "id": 2,
+      "name": "Barra",
+      "prefix": "br",
+      "count": 10,
+      "mesas": {
+        "Mesa 1": {
+          "number": 1,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 2": {
+          "number": 2,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 3": {
+          "number": 3,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 4": {
+          "number": 4,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 5": {
+          "number": 5,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 6": {
+          "number": 6,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 7": {
+          "number": 7,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 8": {
+          "number": 8,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 9": {
+          "number": 9,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        },
+        "Mesa 10": {
+          "number": 10,
+          "camarero": "",
+          "items": [],
+          "total": 0.0
+        }
+      }
+    }
+  },
+  "products": [
+    {
+      "id": 1,
+      "category": "Comida",
+      "name": "Hamburguesa Clásica",
+      "price": 85.0,
+      "imageUri": "http://172.16.0.36:5000/images/prod_1_1787846229.webp"
+    },
+    {
+      "id": 2,
+      "category": "Comida",
+      "name": "Pizza Pepperoni",
+      "price": 120.0,
+      "imageUri": "http://172.16.0.36:5000/images/prod_2_1787846233.png"
+    },
+    {
+      "id": 3,
+      "category": "Comida",
+      "name": "Papas Fritas",
+      "price": 45.0,
+      "imageUri": ""
+    },
+    {
+      "id": 4,
+      "category": "Comida",
+      "name": "Tacos de Bistec (3pz)",
+      "price": 60.0,
+      "imageUri": ""
+    },
+    {
+      "id": 5,
+      "category": "Bebidas",
+      "name": "Refresco Coca-Cola 600ml",
+      "price": 25.0,
+      "imageUri": ""
+    },
+    {
+      "id": 6,
+      "category": "Bebidas",
+      "name": "Agua Fresca Natural",
+      "price": 20.0,
+      "imageUri": ""
+    },
+    {
+      "id": 7,
+      "category": "Bebidas",
+      "name": "Cerveza Corona",
+      "price": 35.0,
+      "imageUri": ""
+    },
+    {
+      "id": 8,
+      "category": "Postres",
+      "name": "Rebanada de Pastel",
+      "price": 40.0,
+      "imageUri": ""
+    }
+  ],
+  "daily_sales": [],
+  "iva_percentage": 16.0,
+  "day_reset_ts": 1787847113.1814482
+}
