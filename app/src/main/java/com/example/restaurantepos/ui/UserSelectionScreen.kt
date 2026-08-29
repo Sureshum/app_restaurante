@@ -1,6 +1,7 @@
 package com.example.restaurantepos.ui
 
 import android.net.Uri
+import com.example.restaurantepos.BuildConfig
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -86,7 +87,7 @@ fun UserSelectionScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "restaurantSSS Móvil • v1.9.0",
+                        text = "restaurantSSS Móvil • v${BuildConfig.VERSION_NAME}",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold

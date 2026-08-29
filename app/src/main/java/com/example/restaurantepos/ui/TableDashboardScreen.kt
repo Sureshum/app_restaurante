@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.restaurantepos.BuildConfig
 import com.example.restaurantepos.data.AreaEntity
 import com.example.restaurantepos.data.OrderItemEntity
 import com.example.restaurantepos.data.ProductEntity
@@ -242,7 +243,7 @@ fun TableDashboardScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Mesas (v1.9.0) • ${session?.userName ?: "Mesero"}", fontWeight = FontWeight.Bold) },
+                title = { Text("Mesas (v${BuildConfig.VERSION_NAME}) • ${session?.userName ?: "Mesero"}", fontWeight = FontWeight.Bold) },
                 actions = {
                     IconButton(onClick = { showEndDayDialog = true }) {
                         Icon(

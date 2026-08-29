@@ -62,7 +62,7 @@ from pydantic import BaseModel
 DEVELOPER_NAME = "Sureshum"
 DEVELOPER_CONTACT = "ssshum25ssshum25@gmail.com"
 
-APP_VERSION = "v1.9.2"
+APP_VERSION = "v1.9.3"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable)
