@@ -165,27 +165,8 @@ fun OrderScreen(
             scope.launch(Dispatchers.IO) {
                 val currentIp = ExportManager.getPcIp(context)
                 if (currentIp.isNotBlank() && currentIp != "192.168.x.xx") {
-                    val pdfFile = ExportManager.generatePdfReceipt(
-                        context = context,
-                        tableId = table.number,
-                        tableNameDisplay = tableDisplayName,
-                        items = itemsList,
-                        totalAmount = totalAmount,
-                        waiterName = waiterName,
-                        currency = currencySymbol
-                    )
-
-                    if (pdfFile != null && pdfFile.exists()) {
-                        ExportManager.sendPdfToPc(
-                            pdfFile = pdfFile,
-                            pcIpAddress = currentIp,
-                            tableId = table.number,
-                            tableName = tableNameToSend,
-                            areaId = table.areaId
-                        )
-                    }
-
-                    // Registrar la venta en la PC para que aparezca en el Cierre de Día
+                    // El recibo PDF lo genera y guarda la PC (mismo formato completo)
+                    // al registrar la venta a través de /sale.
                     ExportManager.registerSaleOnPc(
                         pcIpAddress = currentIp,
                         mesa = tableNameToSend,

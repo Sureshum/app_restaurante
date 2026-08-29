@@ -242,7 +242,7 @@ fun TableDashboardScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Mesas (v1.7.0) • ${session?.userName ?: "Mesero"}", fontWeight = FontWeight.Bold) },
+                title = { Text("Mesas (v1.9.0) • ${session?.userName ?: "Mesero"}", fontWeight = FontWeight.Bold) },
                 actions = {
                     IconButton(onClick = { showEndDayDialog = true }) {
                         Icon(

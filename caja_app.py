@@ -822,12 +822,6 @@ def generar_recibo_pdf(
     c.drawString(360, y, f"TOTAL A PAGAR: {mon}{total:.2f}")
     y -= 22
 
-    # Importe en letras
-    c.setFont("Helvetica-Oblique", 10)
-    importe_letras = _numero_a_letras(total)
-    c.drawString(70, y, f"Son: {importe_letras} {mon}")
-    y -= 22
-
     # ---- Pagos -----------------------------------------------------------
     c.setFont("Helvetica", 11)
     c.drawString(360, y, f"Efectivo: {mon}{efectivo:.2f}")
@@ -966,20 +960,24 @@ def generar_reporte_cierre_dia_pdf(sales_list: list) -> str:
 # ============================================================
 
 def exportar_ventas_excel(sales_list: list) -> str:
-    """Exporta las ventas del día a un CSV compatible con Excel.
+    """Exporta las ventas del día a un archivo Excel (XLSX) real.
 
     Incluye moneda e impuesto por país, datos fiscales y desglose por producto.
-    Se usa BOM UTF-8 para que Excel abra correctamente acentos y símbolos de moneda.
+    Se usa openpyxl para generar un .xlsx con formato (estilos, anchos, resumen).
     """
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
     fecha_hoy = datetime.now().strftime("%Y-%m-%d")
-    nombre_archivo = f"Ventas_Contabilidad_{fecha_hoy}_{datetime.now().strftime('%H%M%S')}.csv"
+    nombre_archivo = f"Ventas_Contabilidad_{fecha_hoy}_{datetime.now().strftime('%H%M%S')}.xlsx"
     ruta_completa = os.path.join(CARPETA_RECIBOS, nombre_archivo)
+    os.makedirs(CARPETA_RECIBOS, exist_ok=True)
 
     country = get_active_country()
     mon = country["currency"]
     tax_name = country["tax_name"]
 
-    # Encabezados contables
     headers = [
         "Fecha/Hora", "Mesa", "Sala", "Camarero",
         "Producto", "Cantidad", "Precio Unitario", "Subtotal",
@@ -995,7 +993,6 @@ def exportar_ventas_excel(sales_list: list) -> str:
         if not items:
             items = [{"nombre": "(sin ítems)", "cantidad": 0, "precio": 0.0}]
         impuesto = s.get("iva", 0.0)
-        subtotal = s.get("subtotal", 0.0)
         for it in items:
             rows.append([
                 s.get("fecha_hora", ""),
@@ -1020,27 +1017,107 @@ def exportar_ventas_excel(sales_list: list) -> str:
                 s.get("fiscal_number", "")
             ])
 
-    # Totales al final
     total_vendido = sum(s.get("total", 0.0) for s in sales_list)
     total_subtotal = sum(s.get("subtotal", 0.0) for s in sales_list)
     total_impuesto = sum(s.get("iva", 0.0) for s in sales_list)
     total_efectivo = sum(s.get("efectivo", 0.0) for s in sales_list)
     total_tarjeta = sum(s.get("tarjeta", 0.0) for s in sales_list)
+    total_cuentas = len(sales_list)
 
-    with open(ruta_completa, "w", encoding="utf-8-sig", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(headers)
-        for row in rows:
-            writer.writerow(row)
-        writer.writerow([])
-        writer.writerow(["RESUMEN DEL DÍA"])
-        writer.writerow(["Subtotal", mon, f"{total_subtotal:.2f}"])
-        writer.writerow([f"{tax_name}", mon, f"{total_impuesto:.2f}"])
-        writer.writerow(["TOTAL VENDIDO", mon, f"{total_vendido:.2f}"])
-        writer.writerow(["Efectivo", mon, f"{total_efectivo:.2f}"])
-        writer.writerow(["Tarjeta", mon, f"{total_tarjeta:.2f}"])
-        writer.writerow(["Esquema Fiscal", country.get("fiscal_scheme", ""), ""])
+    header_fill = PatternFill("solid", fgColor="1F4E78")
+    header_font = Font(color="FFFFFF", bold=True)
+    total_fill = PatternFill("solid", fgColor="D9E1F2")
+    bold_font = Font(bold=True)
+    thin = Side(style="thin", color="B0B0B0")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    center = Alignment(horizontal="center")
+    money_fmt = f'"${mon}"#,##0.00;[Red]-"${mon}"#,##0.00'
 
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Ventas"
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = border
+
+    for row in rows:
+        ws.append(row)
+
+    # Aplicar formato y bordes a las filas de datos
+    for row in ws.iter_rows(min_row=2, max_row=1 + len(rows), min_col=1, max_col=len(headers)):
+        for cell in row:
+            cell.border = border
+            if cell.column in (6, 7, 8, 9, 10, 12, 13, 14):
+                cell.number_format = money_fmt if cell.column != 6 else "0"
+                cell.alignment = Alignment(horizontal="right")
+            elif cell.column == 6:
+                cell.number_format = "0"
+                cell.alignment = center
+
+    # Filas de resumen al final de la hoja de ventas
+    resumen_rows = [
+        ("Subtotal", total_subtotal, money_fmt),
+        (f"{tax_name}", total_impuesto, money_fmt),
+        ("TOTAL VENDIDO", total_vendido, money_fmt),
+        ("Efectivo", total_efectivo, money_fmt),
+        ("Tarjeta", total_tarjeta, money_fmt),
+        ("Cuentas cobradas", total_cuentas, "0"),
+        ("Esquema Fiscal", country.get("fiscal_scheme", ""), None),
+    ]
+    start = ws.max_row + 2
+    for i, (label, value, fmt) in enumerate(resumen_rows):
+        r = start + i
+        ws.cell(row=r, column=1, value=str(label))
+        ws.cell(row=r, column=1).font = bold_font
+        ws.cell(row=r, column=2, value=value)
+        if fmt:
+            ws.cell(row=r, column=2).number_format = fmt
+        else:
+            ws.cell(row=r, column=2).value = str(value)
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=3)
+        for cell in ws[r][:3]:
+            cell.fill = total_fill
+            cell.border = border
+        ws.cell(row=r, column=4, value="").border = border
+
+    widths = [18, 10, 12, 12, 24, 9, 14, 12, 12, 12, 8, 12, 12, 10, 14, 16, 12, 12, 14, 18]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = "A2"
+
+    # Hoja de resumen con formato
+    ws2 = wb.create_sheet("Resumen del Día")
+    titulo = ws2.cell(row=1, column=1, value=f"Reporte de Cierre de Caja - {fecha_hoy}")
+    titulo.font = Font(bold=True, size=14, color="1F4E78")
+    ws2.merge_cells("A1:C1")
+    resumen_items = [
+        ("Total Facturado", total_vendido, money_fmt),
+        ("Subtotal", total_subtotal, money_fmt),
+        (f"{tax_name}", total_impuesto, money_fmt),
+        ("Efectivo", total_efectivo, money_fmt),
+        ("Tarjeta", total_tarjeta, money_fmt),
+        ("Cuentas Cobradas", total_cuentas, "0"),
+        ("Moneda", mon, None),
+        ("Esquema Fiscal", country.get("fiscal_scheme", ""), None),
+    ]
+    r = 3
+    for label, value, fmt in resumen_items:
+        ws2.cell(row=r, column=1, value=str(label)).font = bold_font
+        if fmt:
+            c2 = ws2.cell(row=r, column=2, value=value)
+            c2.number_format = fmt
+        else:
+            c2 = ws2.cell(row=r, column=2, value=str(value))
+        ws2.cell(row=r, column=1).border = border
+        c2.border = border
+        r += 1
+    ws2.column_dimensions["A"].width = 24
+    ws2.column_dimensions["B"].width = 20
+
+    wb.save(ruta_completa)
     return ruta_completa
 
 
@@ -1154,20 +1231,13 @@ def imprimir_ticket_termico(
         total, efectivo, tarjeta, cambio, tarjeta_info
     )
 
-    # Ruta de archivo de respaldo / impresión manual
-    sanitized = "".join(c for c in nombre_mesa if c.isalnum() or c in (" ", "_")).strip()
-    filename = f"Ticket_{sanitized.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-    file_path = os.path.join(CARPETA_RECIBOS, filename)
-    try:
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(texto)
-    except Exception as e:
-        print(f"Error guardando ticket: {e}")
+    # El recibo oficial es el PDF (generar_recibo_pdf), que queda guardado en
+    # CARPETA_RECIBOS. Este ticket solo se imprime físicamente si hay impresora
+    # térmica configurada; ya no se guarda ni se abre un archivo .txt.
 
     # Impresión real vía win32print (si está disponible)
     try:
         import win32print
-        import win32ui
         # Convertir texto a imagen no es trivial sin driver específico;
         # intentamos la impresora 'Generic / Text Only' si existe, si no, la por defecto.
         printers = [p[2] for p in win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL)]
@@ -1195,20 +1265,12 @@ def imprimir_ticket_termico(
                     win32print.EndDocPrinter(hprinter)
                 finally:
                     win32print.ClosePrinter(hprinter)
-                return file_path
             except Exception as e:
                 print(f"Error imprimiendo vía win32print: {e}")
     except ImportError:
         pass
 
-    # Fallback: abrir el archivo de texto para imprimir manualmente
-    try:
-        if sys.platform == "win32":
-            os.startfile(os.path.abspath(file_path))
-    except Exception:
-        pass
-
-    return file_path
+    return ""
 
 
 # ============================================================
@@ -1504,6 +1566,29 @@ def register_sale(payload: SalePayload):
         daily_sales_db.append(sale_record)
         mark_database_changed()
         save_database()
+
+    # Generar el recibo PDF en la PC (mismo formato completo) para las
+    # ventas registradas desde el teléfono, y dejarlo guardado en la carpeta
+    # de recibos. Así el recibo queda idéntico al de las ventas hechas en la PC.
+    try:
+        os.makedirs(CARPETA_RECIBOS, exist_ok=True)
+        generar_recibo_pdf(
+            nombre_mesa=sale_record["mesa"],
+            camarero=sale_record["camarero"],
+            items=sale_record["items"],
+            subtotal=subtotal,
+            iva_monto=monto_iva,
+            total=total_due,
+            efectivo=efectivo,
+            tarjeta=tarjeta,
+            cambio=cambio,
+            tarjeta_info=tarjeta_info,
+            fiscal_number=fiscal_num,
+            folio=int(sale_record["id"] or 0),
+            sala=sala
+        )
+    except Exception as e:
+        print(f"Error generando recibo PDF (venta desde teléfono): {e}")
 
     return {
         "status": "ok",
@@ -1807,14 +1892,25 @@ class CierreDiaDialog(QDialog):
             return
 
         try:
-            csv_path = exportar_ventas_excel(sales)
+            xlsx_path = exportar_ventas_excel(sales)
             if sys.platform == "win32":
-                os.startfile(os.path.abspath(csv_path))
+                os.startfile(os.path.abspath(xlsx_path))
+                # Abre la carpeta contenedora para que el archivo quede visible y listo para compartir
+                try:
+                    subprocess.Popen(
+                        ["explorer.exe", "/select,", os.path.abspath(xlsx_path)],
+                        cwd=CARPETA_RECIBOS
+                    )
+                except Exception:
+                    pass
             elif sys.platform == "darwin":
-                subprocess.Popen(["open", os.path.abspath(csv_path)])
+                subprocess.Popen(["open", os.path.abspath(xlsx_path)])
             else:
-                subprocess.Popen(["xdg-open", os.path.abspath(csv_path)])
-            QMessageBox.information(self, "Exportado", f"Archivo de contabilidad (Excel/CSV) guardado y abierto:\n{csv_path}")
+                subprocess.Popen(["xdg-open", os.path.abspath(xlsx_path)])
+            QMessageBox.information(
+                self, "Exportado",
+                f"Reporte de contabilidad (Excel .xlsx) guardado y abierto:\n{xlsx_path}"
+            )
         except Exception as e:
             QMessageBox.warning(self, "Error", f"No se pudo exportar a Excel: {e}")
 
@@ -3320,32 +3416,6 @@ class CashierWindow(QMainWindow):
         txt_card = QLineEdit("0.00")
         layout.addWidget(txt_card)
 
-        # Datos de la terminal bancaria (TPV)
-        lbl_tpv = QLabel(f"<b>💳 Datos de la Terminal (TPV):</b>")
-        lbl_tpv.setStyleSheet("font-size: 12px; margin-top: 4px;")
-        layout.addWidget(lbl_tpv)
-
-        tpv_row1 = QHBoxLayout()
-        txt_brand = QLineEdit()
-        txt_brand.setPlaceholderText("Marca (Visa/MC)")
-        txt_last4 = QLineEdit()
-        txt_last4.setMaximumWidth(90)
-        txt_last4.setPlaceholderText("Últ. 4")
-        tpv_row1.addWidget(txt_brand)
-        tpv_row1.addWidget(txt_last4)
-        layout.addLayout(tpv_row1)
-
-        tpv_row2 = QHBoxLayout()
-        txt_auth = QLineEdit()
-        txt_auth.setPlaceholderText("Cód. aprobación")
-        txt_ref = QLineEdit()
-        txt_ref.setPlaceholderText("Referencia")
-        chk_contactless = QCheckBox("NFC/TAP (contactless)")
-        tpv_row2.addWidget(txt_auth)
-        tpv_row2.addWidget(txt_ref)
-        tpv_row2.addWidget(chk_contactless)
-        layout.addLayout(tpv_row2)
-
         # Identificación fiscal del cliente (NIT/CUI/RUT según país)
         layout.addWidget(QLabel(f"<b>🧾 {country.get('fiscal_scheme', 'Fiscal')}: Identificación del cliente</b>"))
         txt_fiscal = QLineEdit()
@@ -3405,7 +3475,7 @@ class CashierWindow(QMainWindow):
             lambda: self.process_payment(
                 dialog, txt_cash, txt_card, mesa_data, subtotal_base,
                 calculated["monto_iva"], calculated["total_due"], room["name"], display_name,
-                txt_brand, txt_last4, txt_auth, txt_ref, txt_fiscal, chk_contactless
+                txt_fiscal
             )
         )
         layout.addWidget(btn_finish)
@@ -3424,12 +3494,7 @@ class CashierWindow(QMainWindow):
         total_due: float,
         room_name: str,
         display_name: str,
-        txt_brand: QLineEdit = None,
-        txt_last4: QLineEdit = None,
-        txt_auth: QLineEdit = None,
-        txt_ref: QLineEdit = None,
-        txt_fiscal: QLineEdit = None,
-        chk_contactless: QCheckBox = None
+        txt_fiscal: QLineEdit = None
     ):
         try:
             cash = float(txt_cash.text()) if txt_cash.text() else 0.0
@@ -3443,26 +3508,16 @@ class CashierWindow(QMainWindow):
             QMessageBox.warning(self, "Pago insuficiente", f"Falta pagar ${abs(change):.2f}")
             return
 
-        # Datos de la terminal / tarjeta y fiscal
-        def _t(widget: QLineEdit) -> str:
-            return (widget.text().strip() if widget else "")
-
-        card_brand = _t(txt_brand)
-        card_last4 = _t(txt_last4)
-        card_auth = _t(txt_auth)
-        card_ref = _t(txt_ref)
-        fiscal_num = _t(txt_fiscal)
-        is_contactless = bool(chk_contactless and chk_contactless.isChecked())
-        payment_method = "contactless" if is_contactless else "tarjeta"
+        # Identificación fiscal del cliente (opcional)
+        fiscal_num = (txt_fiscal.text().strip() if txt_fiscal else "")
+        card_brand = ""
+        card_last4 = ""
+        card_auth = ""
+        card_ref = ""
+        is_contactless = False
+        payment_method = "tarjeta"
 
         tarjeta_info = ""
-        if card_brand or card_last4:
-            prefix = "NFC/TAP " if is_contactless else ""
-            tarjeta_info = f"{prefix}{card_brand} ••••{card_last4}".strip()
-        if card_auth:
-            tarjeta_info += f" | Aprob.: {card_auth}"
-        if card_ref:
-            tarjeta_info += f" | Ref: {card_ref}"
 
         country = get_active_country()
         mon = country["currency"]
