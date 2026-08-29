@@ -978,7 +978,7 @@ def exportar_ventas_excel(sales_list: list) -> str:
     mon = country["currency"]
     tax_name = country["tax_name"]
 
-    headers = [
+    headers_all = [
         "Fecha/Hora", "Mesa", "Sala", "Camarero",
         "Producto", "Cantidad", "Precio Unitario", "Subtotal",
         f"Impuesto ({tax_name} %)", "Total", "Moneda",
@@ -986,15 +986,23 @@ def exportar_ventas_excel(sales_list: list) -> str:
         "Marca Tarjeta", "Terminal (últ 4)", "Aprobación", "Referencia",
         "Esquema Fiscal", "Identificación Fiscal"
     ]
+    # Tipos por columna (0-based): money = monetario, int = entero
+    col_types = ["str", "str", "str", "str", "str", "int",
+                 "money", "money", "money", "money", "str",
+                 "money", "money", "money",
+                 "str", "str", "str", "str", "str", "str"]
 
-    rows = []
+    def _no_vacio(v):
+        return v is not None and str(v).strip() != ""
+
+    rows_full = []
     for s in sales_list:
         items = s.get("items", [])
         if not items:
             items = [{"nombre": "(sin ítems)", "cantidad": 0, "precio": 0.0}]
         impuesto = s.get("iva", 0.0)
         for it in items:
-            rows.append([
+            rows_full.append([
                 s.get("fecha_hora", ""),
                 s.get("mesa", ""),
                 s.get("sala", ""),
@@ -1016,6 +1024,14 @@ def exportar_ventas_excel(sales_list: list) -> str:
                 s.get("fiscal_scheme", country.get("fiscal_scheme", "")),
                 s.get("fiscal_number", "")
             ])
+
+    # Conserva sólo las columnas que tienen al menos un dato en el detalle
+    keep = [any(_no_vacio(row[ci]) for row in rows_full) for ci in range(len(headers_all))]
+    headers = [h for h, k in zip(headers_all, keep) if k]
+    rows = [[v for v, k in zip(r, keep) if k] for r in rows_full]
+    col_types = [ct for ct, k in zip(col_types, keep) if k]
+    # Mapa de nuevo índice -> tipo (1-based)
+    tipo_idx = {i + 1: ct for i, ct in enumerate(col_types)}
 
     total_vendido = sum(s.get("total", 0.0) for s in sales_list)
     total_subtotal = sum(s.get("subtotal", 0.0) for s in sales_list)
@@ -1046,18 +1062,19 @@ def exportar_ventas_excel(sales_list: list) -> str:
     for row in rows:
         ws.append(row)
 
-    # Aplicar formato y bordes a las filas de datos
+    # Aplicar formato y bordes a las filas de datos (sólo columnas activas)
     for row in ws.iter_rows(min_row=2, max_row=1 + len(rows), min_col=1, max_col=len(headers)):
         for cell in row:
             cell.border = border
-            if cell.column in (6, 7, 8, 9, 10, 12, 13, 14):
-                cell.number_format = money_fmt if cell.column != 6 else "0"
+            t = tipo_idx.get(cell.column, "str")
+            if t == "money":
+                cell.number_format = money_fmt
                 cell.alignment = Alignment(horizontal="right")
-            elif cell.column == 6:
+            elif t == "int":
                 cell.number_format = "0"
                 cell.alignment = center
 
-    # Filas de resumen al final de la hoja de ventas
+    # Filas de resumen al final de la hoja de ventas (sin columnas vacías)
     resumen_rows = [
         ("Subtotal", total_subtotal, money_fmt),
         (f"{tax_name}", total_impuesto, money_fmt),
@@ -1067,25 +1084,31 @@ def exportar_ventas_excel(sales_list: list) -> str:
         ("Cuentas cobradas", total_cuentas, "0"),
         ("Esquema Fiscal", country.get("fiscal_scheme", ""), None),
     ]
-    start = ws.max_row + 2
+    start = ws.max_row + 1
     for i, (label, value, fmt) in enumerate(resumen_rows):
         r = start + i
-        ws.cell(row=r, column=1, value=str(label))
-        ws.cell(row=r, column=1).font = bold_font
-        ws.cell(row=r, column=2, value=value)
-        if fmt:
-            ws.cell(row=r, column=2).number_format = fmt
+        if fmt is None:
+            texto = f"{label}: {value}"
+        elif fmt == "0":
+            texto = f"{label}: {int(value)}"
         else:
-            ws.cell(row=r, column=2).value = str(value)
-        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=3)
-        for cell in ws[r][:3]:
-            cell.fill = total_fill
-            cell.border = border
-        ws.cell(row=r, column=4, value="").border = border
+            texto = f"{label}: ${value:,.2f}"
+        ws.cell(row=r, column=1, value=texto)
+        ws.cell(row=r, column=1).font = bold_font
+        ws.cell(row=r, column=1).fill = total_fill
+        ws.cell(row=r, column=1).border = border
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
 
-    widths = [18, 10, 12, 12, 24, 9, 14, 12, 12, 12, 8, 12, 12, 10, 14, 16, 12, 12, 14, 18]
-    for i, w in enumerate(widths, start=1):
-        ws.column_dimensions[get_column_letter(i)].width = w
+    col_widths = {
+        "Fecha/Hora": 18, "Mesa": 10, "Sala": 12, "Camarero": 12,
+        "Producto": 24, "Cantidad": 9, "Precio Unitario": 14, "Subtotal": 12,
+        "Impuesto": 12, "Total": 12, "Moneda": 8, "Efectivo": 12, "Tarjeta": 12,
+        "Cambio": 10, "Marca Tarjeta": 14, "Terminal (últ 4)": 16,
+        "Aprobación": 12, "Referencia": 12, "Esquema Fiscal": 14,
+        "Identificación Fiscal": 18
+    }
+    for i, h in enumerate(headers, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = col_widths.get(h, 12)
     ws.freeze_panes = "A2"
 
     # Hoja de resumen con formato
