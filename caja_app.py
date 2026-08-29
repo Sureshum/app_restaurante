@@ -62,7 +62,7 @@ from pydantic import BaseModel
 DEVELOPER_NAME = "Sureshum"
 DEVELOPER_CONTACT = "ssshum25ssshum25@gmail.com"
 
-APP_VERSION = "v1.9.0"
+APP_VERSION = "v1.9.2"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable)
@@ -406,7 +406,7 @@ def save_database():
                 "custom_countries": CUSTOM_COUNTRIES
             }
             with open(DATA_FILE, "w", encoding="utf-8") as f:
-                json.dump(payload, f, ensure_ascii=False, indent=2)
+                json.dump(payload, f, ensure_ascii=False, separators=(",", ":"))
         except Exception as e:
             print(f"Error al guardar la base de datos: {e}")
 
@@ -1511,6 +1511,15 @@ def register_sale(payload: SalePayload):
         total_due = subtotal + monto_iva
         efectivo = float(payload.efectivo or 0.0)
         tarjeta = float(payload.tarjeta or 0.0)
+
+        # Cuando la venta viene desde el teléfono, el cliente paga la cuenta
+        # completa al cobrar. El teléfono envía `tarjeta` con el SUBTOTAL (el
+        # valor de la carta, SIN IVA). Para que el recibo y el cierre de día
+        # cuadren con el IVA igual que en la PC (Tarjeta = TOTAL, Cambio = 0),
+        # si el monto pagado por tarjeta cubre exactamente el subtotal y no hay
+        # efectivo, lo ajustamos al total con IVA.
+        if efectivo <= 0 and tarjeta > 0 and abs(tarjeta - subtotal) < 0.01:
+            tarjeta = total_due
         cambio = max(0.0, (efectivo + tarjeta) - total_due)
 
         sala = (payload.sala or "").strip()
@@ -1565,7 +1574,6 @@ def register_sale(payload: SalePayload):
         }
         daily_sales_db.append(sale_record)
         mark_database_changed()
-        save_database()
 
     # Generar el recibo PDF en la PC (mismo formato completo) para las
     # ventas registradas desde el teléfono, y dejarlo guardado en la carpeta

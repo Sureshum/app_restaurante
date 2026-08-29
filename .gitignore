@@ -31,3 +31,6 @@ pos_database.json
 
 # APK compilado (artefacto de build regenerable)
 app/release/
+
+# Keystore de firma (secreto/regenerable, no subir)
+keystore/

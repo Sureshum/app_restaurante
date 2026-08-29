@@ -18,7 +18,9 @@ fun EndDayDialog(
 ) {
     val context = LocalContext.current
     val totalItems = pendingItems.size
-    val totalRevenue = pendingItems.sumOf { it.price }
+    val subtotalRevenue = pendingItems.sumOf { it.price }
+    val taxRate = PosConfigStore.load(context).taxRate
+    val totalRevenue = subtotalRevenue * (1.0 + taxRate / 100.0)
 
     AlertDialog(
         onDismissRequest = onDismiss,
