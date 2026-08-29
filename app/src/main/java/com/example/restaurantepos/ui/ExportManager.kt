@@ -34,7 +34,8 @@ object ExportManager {
         cashAmount: Double = 0.0,
         cardAmount: Double = totalAmount,
         waiterName: String = "Camarero",
-        tableNameDisplay: String? = null
+        tableNameDisplay: String? = null,
+        currency: String = "\$"
     ): File? {
         val pdfDocument = PdfDocument()
         val pageInfo = PdfDocument.PageInfo.Builder(612, 792, 1).create() // Tamaño Carta (Letter)
@@ -85,8 +86,8 @@ object ExportManager {
             val subtotal = product.price * qty
             canvas.drawText(product.name, 60f, y, paint)
             canvas.drawText(qty.toString(), 300f, y, paint)
-            canvas.drawText(String.format(Locale.US, "$%.2f", product.price), 400f, y, paint)
-            canvas.drawText(String.format(Locale.US, "$%.2f", subtotal), 480f, y, paint)
+            canvas.drawText(currency + String.format(Locale.US, "%.2f", product.price), 400f, y, paint)
+            canvas.drawText(currency + String.format(Locale.US, "%.2f", subtotal), 480f, y, paint)
             y += 20f
         }
 
@@ -97,16 +98,16 @@ object ExportManager {
         // Totales y Métodos de Pago
         boldPaint.textSize = 14f
         boldPaint.textAlign = Paint.Align.LEFT
-        canvas.drawText(String.format(Locale.US, "TOTAL: $%.2f", totalAmount), 350f, y, boldPaint)
+        canvas.drawText("TOTAL: " + currency + String.format(Locale.US, "%.2f", totalAmount), 350f, y, boldPaint)
         y += 20f
 
         val changeAmount = (cashAmount + cardAmount) - totalAmount
         paint.textSize = 11f
-        canvas.drawText(String.format(Locale.US, "Efectivo: $%.2f", cashAmount), 350f, y, paint)
+        canvas.drawText("Efectivo: " + currency + String.format(Locale.US, "%.2f", cashAmount), 350f, y, paint)
         y += 15f
-        canvas.drawText(String.format(Locale.US, "Tarjeta: $%.2f", cardAmount), 350f, y, paint)
+        canvas.drawText("Tarjeta: " + currency + String.format(Locale.US, "%.2f", cardAmount), 350f, y, paint)
         y += 15f
-        canvas.drawText(String.format(Locale.US, "Cambio: $%.2f", if (changeAmount > 0) changeAmount else 0.0), 350f, y, paint)
+        canvas.drawText("Cambio: " + currency + String.format(Locale.US, "%.2f", if (changeAmount > 0) changeAmount else 0.0), 350f, y, paint)
 
         pdfDocument.finishPage(page)
 
@@ -350,6 +351,12 @@ object ExportManager {
         tarjeta: Double,
         areaId: Int? = null,
         port: Int = 5000,
+        cardBrand: String = "",
+        cardLast4: String = "",
+        cardAuth: String = "",
+        cardReference: String = "",
+        fiscalNumber: String = "",
+        paymentMethod: String = "tarjeta",
         onResult: ((Boolean) -> Unit)? = null
     ) {
         CoroutineScope(Dispatchers.IO).launch {
@@ -384,6 +391,12 @@ object ExportManager {
                     if (areaId != null) {
                         put("areaId", areaId)
                     }
+                    put("cardBrand", cardBrand)
+                    put("cardLast4", cardLast4)
+                    put("cardAuth", cardAuth)
+                    put("cardReference", cardReference)
+                    put("fiscalNumber", fiscalNumber)
+                    put("paymentMethod", paymentMethod)
                 }
 
                 val writer = OutputStreamWriter(connection.outputStream, "UTF-8")
@@ -447,6 +460,7 @@ object ExportManager {
 
     // Sincronización ultrarrápida combinada (Salas, Productos y Mesas en una sola petición)
     fun fetchFastSync(
+        context: Context,
         pcIpAddress: String,
         areaId: Int? = null,
         currentVersion: Int = 0,
@@ -470,6 +484,14 @@ object ExportManager {
                 if (connection.responseCode == HttpURLConnection.HTTP_OK) {
                     val stream = connection.inputStream.bufferedReader().use { it.readText() }
                     val rootObj = JSONObject(stream)
+
+                    // El país/impuesto/moneda se define únicamente en la PC;
+                    // el teléfono descarga la configuración y la aplica localmente.
+                    val countryObj = rootObj.optJSONObject("country")
+                    if (countryObj != null) {
+                        PosConfigStore.applyFromJson(context, countryObj)
+                    }
+
                     val version = rootObj.optInt("version", 0)
                     val hasChanged = rootObj.optBoolean("has_changed", false)
                     val areasArray = if (hasChanged) rootObj.optJSONArray("areas") else null
@@ -784,6 +806,164 @@ object ExportManager {
                     connectTimeout = 4000
                     readTimeout = 4000
                 }
+                connection.responseCode
+                connection.disconnect()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    /**
+     * Sube una foto de producto al servidor (PC) vía /upload-image y devuelve la
+     * URL http://IP:5000/images/<archivo> lista para guardar en imageUri.
+     * Es una llamada BLOQUEANTE (usar desde Dispatchers.IO). Devuelve null si falla.
+     */
+    fun uploadImageToPc(
+        pcIpAddress: String,
+        imagePath: String,
+        productId: Int? = null,
+        port: Int = 5000
+    ): String? {
+        return try {
+            val file = File(imagePath)
+            if (!file.exists()) return null
+
+            val boundary = "*****" + System.currentTimeMillis() + "*****"
+            val url = URL("http://$pcIpAddress:$port/upload-image")
+            val connection = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                doInput = true
+                useCaches = false
+                setRequestProperty("Connection", "Keep-Alive")
+                setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+            }
+
+            val outputStream: OutputStream = connection.outputStream
+            val writer = outputStream.bufferedWriter()
+
+            writer.write("--$boundary\r\n")
+            writer.write("Content-Disposition: form-data; name=\"file\"; filename=\"${file.name}\"\r\n")
+            writer.write("Content-Type: application/octet-stream\r\n\r\n")
+            writer.flush()
+
+            val inputStream = FileInputStream(file)
+            val buffer = ByteArray(4096)
+            var bytesRead: Int
+            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                outputStream.write(buffer, 0, bytesRead)
+            }
+            outputStream.flush()
+            inputStream.close()
+
+            if (productId != null) {
+                writer.write("\r\n--$boundary\r\n")
+                writer.write("Content-Disposition: form-data; name=\"product_id\"\r\n\r\n")
+                writer.write(productId.toString())
+                writer.flush()
+            }
+
+            writer.write("\r\n--$boundary--\r\n")
+            writer.flush()
+            writer.close()
+
+            val code = connection.responseCode
+            val result = if (code == HttpURLConnection.HTTP_OK) {
+                val text = connection.inputStream.bufferedReader().use { it.readText() }
+                JSONObject(text).optString("imageUri").ifBlank { null }
+            } else {
+                null
+            }
+            connection.disconnect()
+            result
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    // --- SINCRONIZACIÓN DE CONFIGURACIÓN MULTIPAÍS ---
+
+    // Lista de países soportados por el servidor
+    fun fetchCountries(
+        pcIpAddress: String,
+        port: Int = 5000,
+        onSuccess: (JSONArray) -> Unit
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val url = URL("http://$pcIpAddress:$port/countries")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 3000
+                    readTimeout = 3000
+                }
+                if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                    val stream = connection.inputStream.bufferedReader().use { it.readText() }
+                    val jsonArray = JSONArray(stream)
+                    withContext(Dispatchers.Main) { onSuccess(jsonArray) }
+                }
+                connection.disconnect()
+            } catch (e: Exception) {
+                // Silencioso
+            }
+        }
+    }
+
+    // Configuración activa del negocio (país, impuesto, moneda, fiscal)
+    fun fetchConfig(
+        pcIpAddress: String,
+        port: Int = 5000,
+        onSuccess: (JSONObject) -> Unit
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val url = URL("http://$pcIpAddress:$port/config")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 3000
+                    readTimeout = 3000
+                }
+                if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                    val stream = connection.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(stream)
+                    withContext(Dispatchers.Main) { onSuccess(json) }
+                }
+                connection.disconnect()
+            } catch (e: Exception) {
+                // Silencioso
+            }
+        }
+    }
+
+    // Aplica un país (y preferencias) en el servidor para que se sincronice a todas las apps
+    fun updatePcConfig(
+        pcIpAddress: String,
+        code: String,
+        printWidthMm: Int? = null,
+        printEnabled: Boolean? = null,
+        port: Int = 5000
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val url = URL("http://$pcIpAddress:$port/config")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                    doOutput = true
+                    connectTimeout = 4000
+                    readTimeout = 4000
+                }
+                val payload = JSONObject().apply {
+                    put("code", code)
+                    if (printWidthMm != null) put("print_width_mm", printWidthMm)
+                    if (printEnabled != null) put("print_enabled", printEnabled)
+                }
+                val writer = OutputStreamWriter(connection.outputStream, "UTF-8")
+                writer.write(payload.toString())
+                writer.flush()
+                writer.close()
                 connection.responseCode
                 connection.disconnect()
             } catch (e: Exception) {

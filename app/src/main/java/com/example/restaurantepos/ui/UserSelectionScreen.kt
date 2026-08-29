@@ -86,19 +86,21 @@ fun UserSelectionScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "restaurantSSS Móvil • v1.8.2",
+                        text = "restaurantSSS Móvil • v1.9.0",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
                     )
                 }
 
-                    IconButton(onClick = { showIpDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Configurar IP PC",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                    Row {
+                        IconButton(onClick = { showIpDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Configurar IP PC",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 }
 
@@ -263,6 +265,7 @@ fun UserSelectionScreen(
                     onDismiss = { showIpDialog = false }
                 )
             }
+
         }
     }
 }

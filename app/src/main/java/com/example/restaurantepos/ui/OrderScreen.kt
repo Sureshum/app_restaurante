@@ -91,6 +91,7 @@ fun OrderScreen(
     val totalItemsCount = cart.values.sum()
     var isNavigatingBack by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val currencySymbol = remember { PosConfigStore.load(context).currency }
 
     val areaPrefix = area?.prefix?.trim() ?: ""
     val tableNameToSend = if (areaPrefix.isNotBlank()) "$areaPrefix${table.number}" else "Mesa ${table.number}"
@@ -170,7 +171,8 @@ fun OrderScreen(
                         tableNameDisplay = tableDisplayName,
                         items = itemsList,
                         totalAmount = totalAmount,
-                        waiterName = waiterName
+                        waiterName = waiterName,
+                        currency = currencySymbol
                     )
 
                     if (pdfFile != null && pdfFile.exists()) {
@@ -265,7 +267,7 @@ fun OrderScreen(
                         }
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "$$${String.format(Locale.US, "%.2f", totalAmount)}",
+                            "$currencySymbol${String.format(Locale.US, "%.2f", totalAmount)}",
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -329,7 +331,7 @@ fun OrderScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    "$$${String.format(Locale.US, "%.2f", product.price)}",
+                                    "$currencySymbol${String.format(Locale.US, "%.2f", product.price)}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.secondary,
                                     fontWeight = FontWeight.SemiBold
@@ -486,7 +488,7 @@ fun OrderScreen(
                                             style = MaterialTheme.typography.bodyMedium
                                         )
                                         Text(
-                                            "$$${String.format(Locale.US, "%.2f", prod.price)} c/u",
+                                            "$currencySymbol${String.format(Locale.US, "%.2f", prod.price)} c/u",
                                             style = MaterialTheme.typography.bodySmall
                                         )
                                     }
@@ -524,7 +526,7 @@ fun OrderScreen(
                     ) {
                         Text("Total:", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "$$${String.format(Locale.US, "%.2f", totalAmount)}",
+                            "$currencySymbol${String.format(Locale.US, "%.2f", totalAmount)}",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary

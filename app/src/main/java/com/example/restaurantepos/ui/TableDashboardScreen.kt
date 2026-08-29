@@ -73,6 +73,7 @@ fun TableDashboardScreen(
             if (currentIp.isNotBlank() && currentIp != "192.168.x.xx") {
                 val activeAreaId = liveSelectedAreaId ?: liveCurrentArea?.id
                 ExportManager.fetchFastSync(
+                    context = context,
                     pcIpAddress = currentIp,
                     areaId = activeAreaId,
                     currentVersion = lastKnownSyncVersion

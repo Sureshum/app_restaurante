@@ -150,26 +150,37 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
         context: android.content.Context
     ) {
         viewModelScope.launch(Dispatchers.IO) {
+            var finalImageUri = imageUri
+            val currentIp = ExportManager.getPcIp(context)
+            if (!isRemoteImage(finalImageUri) && finalImageUri != null && currentIp.isNotBlank() && currentIp != "192.168.x.xx") {
+                val uploaded = ExportManager.uploadImageToPc(currentIp, finalImageUri)
+                if (uploaded != null) finalImageUri = uploaded
+            }
             dao.insertProduct(
                 ProductEntity(
                     category = category,
                     name = name,
                     price = price,
-                    imageUri = imageUri
+                    imageUri = finalImageUri
                 )
             )
-
-            val currentIp = ExportManager.getPcIp(context)
             if (currentIp.isNotBlank() && currentIp != "192.168.x.xx") {
                 ExportManager.createProductOnPc(
                     pcIpAddress = currentIp,
                     category = category,
                     name = name,
                     price = price,
-                    imageUri = imageUri
+                    imageUri = finalImageUri
                 )
             }
         }
+    }
+
+    // true si el imageUri es una URL remota (servida por la PC o content://).
+    // false si es una ruta local del teléfono que hay que subir a la PC.
+    private fun isRemoteImage(uri: String?): Boolean {
+        if (uri == null) return true
+        return uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("content://")
     }
 
     fun updateProduct(product: ProductEntity) {
@@ -180,16 +191,23 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
 
     fun updateProductFromMobile(product: ProductEntity, context: android.content.Context) {
         viewModelScope.launch(Dispatchers.IO) {
-            dao.updateProduct(product)
+            var finalImageUri = product.imageUri
             val currentIp = ExportManager.getPcIp(context)
+            if (!isRemoteImage(finalImageUri) && finalImageUri != null && currentIp.isNotBlank() && currentIp != "192.168.x.xx") {
+                val uploaded = ExportManager.uploadImageToPc(currentIp, finalImageUri, productId = product.id)
+                if (uploaded != null) finalImageUri = uploaded
+            }
+            val updated = product.copy(imageUri = finalImageUri)
+            dao.updateProduct(updated)
+
             if (currentIp.isNotBlank() && currentIp != "192.168.x.xx") {
                 ExportManager.updateProductOnPc(
                     pcIpAddress = currentIp,
-                    productId = product.id,
-                    category = product.category,
-                    name = product.name,
-                    price = product.price,
-                    imageUri = product.imageUri
+                    productId = updated.id,
+                    category = updated.category,
+                    name = updated.name,
+                    price = updated.price,
+                    imageUri = updated.imageUri
                 )
             }
         }
@@ -366,27 +384,12 @@ class PosViewModel(private val dao: PosDao) : ViewModel() {
     // y se reinicie también (sincronización del botón finalizar día).
     private val _pcDayReset = MutableStateFlow(0.0)
 
-    // Items combinados para el Cierre de Día: ventas de la PC + ventas locales del
-    // teléfono que todavía no están reflejadas en la PC (para evitar duplicar, ya que
-    // las ventas del teléfono también se envían a la PC vía /sale).
-    val combinedEndDayItems: StateFlow<List<OrderItemEntity>> = combine(
-        pendingPaidItems,
-        _pcDailyItems
-    ) { localItems, pcItems ->
-        val pcQty = pcItems.groupingBy { it.productName.trim().lowercase() }.eachCount()
-        val result = pcItems.toMutableList()
-        val localCounts = mutableMapOf<String, Int>()
-        for (item in localItems) {
-            val key = item.productName.trim().lowercase()
-            val localSoFar = localCounts.getOrDefault(key, 0)
-            val pcCubierto = pcQty.getOrDefault(key, 0)
-            if (localSoFar + 1 > pcCubierto) {
-                result.add(item)
-            }
-            localCounts[key] = localSoFar + 1
-        }
-        result
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    // Items combinados para el Cierre de Día.
+    // Fuente única: las ventas del DÍA de la PC (/sync-fast devuelve solo las de hoy).
+    // Todas las ventas cobradas en el teléfono se envían a la PC vía /sale, así que
+    // la PC ya las incluye. Usar solo estos items evita el doble conteo y la
+    // divergencia (teléfono con más ventas que la PC).
+    val combinedEndDayItems: StateFlow<List<OrderItemEntity>> = _pcDailyItems.asStateFlow()
 
     fun updatePcDailySales(sales: List<OrderItemEntity>) {
         _pcDailyItems.value = sales

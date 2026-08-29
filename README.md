@@ -105,6 +105,31 @@ A partir de ese momento, cada pedido enviado se sincronizará automáticamente c
 ### 🍔 Gestión de Menú (`MenuManagementScreen`)
 * **Añadir y Editar Productos:** Creación de platillos especificando foto, categoría y precio.
 * **Almacenamiento de Imágenes:** Persistencia de imágenes del menú tanto en la app Android como en el backend de la PC.
+
+### 🌎 Configuración Multipaís (POS Restaurante)
+* **Selector de País (solo PC):** Elige el país del negocio desde el botón `🌎 País` en la caja (PC). Es la única fuente de verdad: la elección se guarda en el servidor y se propaga automáticamente a todos los teléfonos.
+* **Sincronización automática:** El teléfono descarga la configuración del país durante cada sincronización (`/sync-fast`) y muestra la moneda e impuesto correctos sin necesidad de configurarlo en cada terminal.
+* **Impuesto y moneda dinámicos:** Cada país define su impuesto (IVA/ITBMS/ISV/IGV...), su tasa y su símbolo de moneda (MXN, GTQ, USD, EUR...). Al cambiar de país en la PC se actualiza automáticamente el porcentaje.
+* **Esquema fiscal por región:** CFDI (MX), FEL (GT), CCF (SV), DTE (CL), VERI*FACTU (ES), etc. Se muestra en el ticket/recibo y se almacena en cada venta.
+* **Personalizado:** Opción "Personalizado" para negocios con impuesto/divisa propios.
+
+### 🖨️ Impresión de Tickets Térmicos (PC)
+* **Impresión al cobrar:** Genera e imprime ticket térmico en formato POS restaurante (80mm y 58mm).
+* **Impresoras:** Compatible con impresoras térmicas Windows mediante `win32print` (driver Genérico / Solo texto); fallback a archivo `.txt` que se abre para imprimir.
+* **Configurable:** Activar/desactivar impresión y elegir ancho de impresora desde `🌎 País`.
+
+### 💳 Cobro con Tarjeta (TPV / Terminal bancaria)
+* **Datos de la terminal:** Ingresa marca, últimos 4 dígitos, código de aprobación y referencia de la transacción al cobrar.
+* **Cobro NFC/TAP (contactless):** Marca la opción **NFC/TAP** para registrar pagos sin contacto; el ticket lo indica como `NFC/TAP`.
+* **Ticket y recibo:** La información del pago con tarjeta aparece en el ticket térmico y en el recibo PDF.
+* **Identificación fiscal:** Campo opcional de NIT/CUI/RUT/cédula del cliente según el país, incluido en el ticket.
+* **Métodos mixtos:** Divide el pago entre efectivo y tarjeta con cálculo de cambio/vuelto.
+
+### 📊 Exportación a Excel / Contabilidad
+* **Botón "Exportar Excel / Contabilidad"** en el Cierre de Día: genera un archivo CSV compatible con Excel (con BOM UTF-8 para acentos y símbolos de moneda).
+* **Datos por línea de venta:** fecha, mesa, sala, camarero, producto, cantidad, precio, subtotal, impuesto, total, moneda, efectivo, tarjeta, cambio, marca de tarjeta, terminal (últ 4), aprobación, referencia, esquema fiscal e identificación fiscal.
+* **Resumen del día:** subtotal, impuesto, total vendido, efectivo, tarjeta y esquema fiscal.
+* **Multimoneda:** Usa la moneda e impuesto del país activo, así que el archivo es válido para tu contador en cualquier región.
 ### 🛠️ Stack Tecnológico
 
 | Componente | Tecnología |

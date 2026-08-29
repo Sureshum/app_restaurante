@@ -13,8 +13,8 @@ android {
         applicationId = "com.example.restaurantepos"
         minSdk = 24
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.8.2"
+        versionCode = 4
+        versionName = "1.9.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

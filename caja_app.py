@@ -2,6 +2,7 @@ import sys
 import threading
 import winsound
 import os
+import csv
 import copy
 import json
 import socket
@@ -30,6 +31,7 @@ from PyQt6.QtWidgets import (
     QDialog,
     QComboBox,
     QLineEdit,
+    QCheckBox,
     QMessageBox,
     QFrame,
     QInputDialog,
@@ -40,7 +42,8 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QHeaderView,
     QAbstractItemView,
-    QFileDialog
+    QFileDialog,
+    QDoubleSpinBox
 )
 
 from PyQt6.QtCore import Qt, QTimer, QSize
@@ -59,7 +62,7 @@ from pydantic import BaseModel
 DEVELOPER_NAME = "Sureshum"
 DEVELOPER_CONTACT = "ssshum25ssshum25@gmail.com"
 
-APP_VERSION = "v1.8.3"
+APP_VERSION = "v1.9.0"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable)
@@ -78,6 +81,137 @@ SERVER_HOST = "0.0.0.0"
 SERVER_PORT = 5000
 
 IVA_PERCENTAGE = 16.0
+
+# ============================================================
+# CONFIGURACIÓN MULTIPAÍS (POS RESTAURANTE)
+# ============================================================
+# Cada país define: impuesto, símbolo de moneda, fiscalización y encabezado
+# de recibo. El país activo se guarda en pos_database.json y se sincroniza
+# automáticamente entre la PC (servidor) y los teléfonos Android (clientes).
+
+SUPPORTED_COUNTRIES: List[dict] = [
+    {
+        "code": "MX", "name": "México",
+        "currency": "$", "currency_code": "MXN",
+        "tax_name": "IVA", "tax_rate": 16.0,
+        "fiscal_scheme": "CFDI", "fiscal_required": True,
+    },
+    {
+        "code": "GT", "name": "Guatemala",
+        "currency": "Q", "currency_code": "GTQ",
+        "tax_name": "IVA", "tax_rate": 12.0,
+        "fiscal_scheme": "FEL", "fiscal_required": True,
+    },
+    {
+        "code": "SV", "name": "El Salvador",
+        "currency": "$", "currency_code": "USD",
+        "tax_name": "IVA", "tax_rate": 13.0,
+        "fiscal_scheme": "CCF", "fiscal_required": True,
+    },
+    {
+        "code": "HN", "name": "Honduras",
+        "currency": "L", "currency_code": "HNL",
+        "tax_name": "ISV", "tax_rate": 15.0,
+        "fiscal_scheme": "FDF", "fiscal_required": True,
+    },
+    {
+        "code": "NI", "name": "Nicaragua",
+        "currency": "C$", "currency_code": "NIO",
+        "tax_name": "IVA", "tax_rate": 15.0,
+        "fiscal_scheme": "FCF", "fiscal_required": True,
+    },
+    {
+        "code": "CR", "name": "Costa Rica",
+        "currency": "₡", "currency_code": "CRC",
+        "tax_name": "IVA", "tax_rate": 13.0,
+        "fiscal_scheme": "FE", "fiscal_required": True,
+    },
+    {
+        "code": "PA", "name": "Panamá",
+        "currency": "B/.", "currency_code": "PAB",
+        "tax_name": "ITBMS", "tax_rate": 7.0,
+        "fiscal_scheme": "FE", "fiscal_required": False,
+    },
+    {
+        "code": "DO", "name": "República Dominicana",
+        "currency": "RD$", "currency_code": "DOP",
+        "tax_name": "ITBIS", "tax_rate": 18.0,
+        "fiscal_scheme": "e-CF", "fiscal_required": True,
+    },
+    {
+        "code": "CL", "name": "Chile",
+        "currency": "$", "currency_code": "CLP",
+        "tax_name": "IVA", "tax_rate": 19.0,
+        "fiscal_scheme": "DTE", "fiscal_required": True,
+    },
+    {
+        "code": "AR", "name": "Argentina",
+        "currency": "$", "currency_code": "ARS",
+        "tax_name": "IVA", "tax_rate": 21.0,
+        "fiscal_scheme": "FE", "fiscal_required": True,
+    },
+    {
+        "code": "CO", "name": "Colombia",
+        "currency": "$", "currency_code": "COP",
+        "tax_name": "IVA", "tax_rate": 19.0,
+        "fiscal_scheme": "FE", "fiscal_required": True,
+    },
+    {
+        "code": "PE", "name": "Perú",
+        "currency": "S/", "currency_code": "PEN",
+        "tax_name": "IGV", "tax_rate": 18.0,
+        "fiscal_scheme": "FEE", "fiscal_required": True,
+    },
+    {
+        "code": "EC", "name": "Ecuador",
+        "currency": "$", "currency_code": "USD",
+        "tax_name": "IVA", "tax_rate": 12.0,
+        "fiscal_scheme": "FE", "fiscal_required": True,
+    },
+    {
+        "code": "ES", "name": "España",
+        "currency": "€", "currency_code": "EUR",
+        "tax_name": "IVA", "tax_rate": 21.0,
+        "fiscal_scheme": "VERI*FACTU", "fiscal_required": True,
+    },
+    {
+        "code": "US", "name": "Estados Unidos",
+        "currency": "$", "currency_code": "USD",
+        "tax_name": "Sales Tax", "tax_rate": 8.0,
+        "fiscal_scheme": "Ninguno", "fiscal_required": False,
+    },
+    {
+        "code": "OTRO", "name": "Personalizado",
+        "currency": "$", "currency_code": "USD",
+        "tax_name": "Impuesto", "tax_rate": 16.0,
+        "fiscal_scheme": "Ninguno", "fiscal_required": False,
+    },
+]
+
+
+# Países personalizados añadidos por el usuario (se guardan en pos_database.json).
+CUSTOM_COUNTRIES: List[dict] = []
+
+
+def all_countries() -> List[dict]:
+    """Todos los países: los predefinidos más los personalizados del usuario."""
+    return SUPPORTED_COUNTRIES + CUSTOM_COUNTRIES
+
+
+def get_country(code: str) -> dict:
+    for c in all_countries():
+        if c["code"].upper() == str(code).upper():
+            return c
+    return SUPPORTED_COUNTRIES[-1]
+
+
+# Configuración global activa del negocio (país, impuesto, moneda, fiscal, impresión)
+# country_code: país activo. tax_name/tax_rate/currency derivan del país.
+# print_width_mm: 58 o 80 (ancho de impresora térmica).
+# print_tickets: activar impresión automática de ticket al cobrar.
+active_country_code = "MX"
+PRINT_WIDTH_MM = 80
+PRINT_ENABLED = True
 
 os.makedirs(CARPETA_RECIBOS, exist_ok=True)
 os.makedirs(CARPETA_IMAGENES, exist_ok=True)
@@ -151,6 +285,13 @@ class SalePayload(BaseModel):
     efectivo: float = 0.0
     tarjeta: float = 0.0
     areaId: Optional[int] = None
+    # Info de pago con tarjeta (TPV / terminal bancaria)
+    cardBrand: Optional[str] = ""
+    cardLast4: Optional[str] = ""
+    cardAuth: Optional[str] = ""
+    cardReference: Optional[str] = ""
+    fiscalNumber: Optional[str] = ""  # NIT/CUI/RUT/etc. según país
+    paymentMethod: Optional[str] = "tarjeta"  # efectivo | tarjeta | contactless (NFC/TAP)
 
 
 # ============================================================
@@ -258,7 +399,11 @@ def save_database():
                 "products": products_db,
                 "daily_sales": daily_sales_db,
                 "iva_percentage": IVA_PERCENTAGE,
-                "day_reset_ts": last_day_reset_ts
+                "day_reset_ts": last_day_reset_ts,
+                "country_code": active_country_code,
+                "print_width_mm": PRINT_WIDTH_MM,
+                "print_enabled": PRINT_ENABLED,
+                "custom_countries": CUSTOM_COUNTRIES
             }
             with open(DATA_FILE, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -268,6 +413,7 @@ def save_database():
 
 def load_database():
     global rooms_db, products_db, daily_sales_db, IVA_PERCENTAGE, last_day_reset_ts
+    global active_country_code, PRINT_WIDTH_MM, PRINT_ENABLED, CUSTOM_COUNTRIES
     with db_lock:
         if os.path.exists(DATA_FILE):
             try:
@@ -285,6 +431,17 @@ def load_database():
                         products_db = copy.deepcopy(DEFAULT_PRODUCTS)
                         daily_sales_db = []
 
+                    # Cargar países personalizados del usuario
+                    CUSTOM_COUNTRIES = list(raw_data.get("custom_countries", []) or [])
+
+                    # Cargar configuración activa del negocio (país / impresión)
+                    cc = raw_data.get("country_code", "")
+                    if not any(c["code"].upper() == str(cc).upper() for c in all_countries()):
+                        cc = "MX"
+                    active_country_code = str(cc).upper()
+                    PRINT_WIDTH_MM = int(raw_data.get("print_width_mm", 80) or 80)
+                    PRINT_ENABLED = bool(raw_data.get("print_enabled", True))
+
                     normalize_rooms_db()
                     return
             except Exception as e:
@@ -301,6 +458,33 @@ def mark_database_changed():
     with db_lock:
         last_sync_version += 1
         save_database()
+
+
+def get_active_country() -> dict:
+    """Devuelve la configuración del país activo + impresión actual."""
+    base = get_country(active_country_code)
+    cfg = dict(base)
+    cfg["tax_rate"] = IVA_PERCENTAGE  # IVA editable por el usuario
+    cfg["print_width_mm"] = PRINT_WIDTH_MM
+    cfg["print_enabled"] = PRINT_ENABLED
+    cfg["tax_label"] = f"{cfg['tax_name']} ({cfg['tax_rate']:.1f}%)"
+    return cfg
+
+
+def apply_country(country_code: str):
+    """Aplica un país: actualiza moneda, impuesto e IVA automáticamente."""
+    global active_country_code, IVA_PERCENTAGE
+    country = get_country(country_code)
+    with db_lock:
+        active_country_code = country["code"].upper()
+        IVA_PERCENTAGE = country["tax_rate"]
+        mark_database_changed()
+
+
+def format_money(amount: float) -> str:
+    """Formatea un monto con el símbolo de moneda del país activo."""
+    country = get_active_country()
+    return f"{country['currency']}{amount:,.2f}"
 
 
 load_database()
@@ -445,6 +629,81 @@ def serialize_tables_dict(area_id: Optional[int] = None) -> Dict[str, dict]:
 # GENERADOR DE RECIBOS PDF
 # ============================================================
 
+def _numero_a_letras(n: float) -> str:
+    """Convierte un importe a texto en español (miles y unidades)."""
+    try:
+        from decimal import Decimal, ROUND_HALF_UP
+        d = Decimal(str(abs(n))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        entero = int(d)
+        centavos = int((d - entero) * 100)
+    except (TypeError, ValueError):
+        return ""
+
+    unidades = ["cero", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve",
+                "diez", "once", "doce", "trece", "catorce", "quince", "dieciséis", "diecisiete",
+                "dieciocho", "diecinueve", "veinte", "veintiuno", "veintidós", "veintitrés",
+                "veinticuatro", "veinticinco", "veintiséis", "veintisiete", "veintiocho", "veintinueve"]
+    decenas = ["", "diez", "veinte", "treinta", "cuarenta", "cincuenta", "sesenta", "setenta",
+               "ochenta", "noventa"]
+    centenas = ["", "ciento", "doscientos", "trescientos", "cuatrocientos", "quinientos",
+                "seiscientos", "setecientos", "ochocientos", "novecientos"]
+
+    def tres(n3: int) -> str:
+        if n3 == 0:
+            return ""
+        if n3 == 100:
+            return "cien"
+        c = n3 // 100
+        r = n3 % 100
+        parte = centenas[c]
+        if r == 0:
+            return parte
+        if r <= 29:
+            return parte + (" " if parte else "") + unidades[r]
+        d = r // 10
+        u = r % 10
+        if u == 0:
+            return parte + (" " if parte else "") + decenas[d]
+        return parte + (" " if parte else "") + decenas[d] + " y " + unidades[u]
+
+    def tramo(n3: int) -> str:
+        if n3 == 0:
+            return ""
+        if n3 == 1:
+            return "un"
+        return tres(n3)
+
+    palabras = ""
+    if entero == 0:
+        palabras = "cero"
+    else:
+        millones = entero // 1000000
+        miles = (entero % 1000000) // 1000
+        resto = entero % 1000
+        if millones:
+            if millones == 1:
+                palabras += "un millón"
+            else:
+                palabras += tres(millones) + " millones"
+        if miles:
+            if palabras:
+                palabras += " "
+            if miles == 1:
+                palabras += "mil"
+            else:
+                palabras += tres(miles) + " mil"
+        if resto:
+            if palabras:
+                palabras += " "
+            palabras += tres(resto)
+
+    resultado = palabras
+    resultado += f" con {centavos:02d}/100"
+    if n < 0:
+        resultado = "menos " + resultado
+    return resultado.capitalize()
+
+
 def generar_recibo_pdf(
     nombre_mesa: str,
     camarero: str,
@@ -454,7 +713,11 @@ def generar_recibo_pdf(
     total: float,
     efectivo: float,
     tarjeta: float,
-    cambio: float
+    cambio: float,
+    tarjeta_info: str = "",
+    fiscal_number: str = "",
+    folio: int = 0,
+    sala: str = ""
 ) -> str:
     sanitized_mesa = "".join(c for c in nombre_mesa if c.isalnum() or c in (" ", "_", "-")).strip()
     nombre_archivo = f"Recibo_{sanitized_mesa.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
@@ -465,64 +728,138 @@ def generar_recibo_pdf(
 
     c = canvas.Canvas(ruta_completa, pagesize=letter)
 
-    y = 750
-    c.setFont("Helvetica-Bold", 16)
-    c.drawCentredString(306, y, "--- RESTAURANTE POS ---")
-    y -= 35
+    country = get_active_country()
+    mon = country["currency"]
+    tax_name = country.get("tax_name", "IVA")
+    fecha_hora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
-    c.setFont("Helvetica", 12)
-    c.drawString(80, y, f"Mesa: {nombre_mesa}")
-    c.drawString(320, y, f"Atendió: {camarero or 'Caja'}")
-    y -= 20
+    # ---- Encabezado ------------------------------------------------------
+    y = 765
+    c.setFont("Helvetica-Bold", 17)
+    c.drawCentredString(306, y, "RESTAURANTE POS")
+    y -= 14
+    c.setFont("Helvetica", 9)
+    c.drawCentredString(306, y, f"{country['name']} - Procedimiento / Esquema fiscal: {country['fiscal_scheme']}")
+    y -= 16
 
-    c.drawString(80, y, f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
-    y -= 30
+    c.setLineWidth(1)
+    c.line(70, y, 542, y)
+    y -= 12
 
+    # Folio y fecha (a la derecha)
+    folio_texto = f"RECIBO N\u00ba {folio:08d}" if folio else "RECIBO DE VENTA"
     c.setFont("Helvetica-Bold", 12)
-    c.drawString(80, y, "Producto")
-    c.drawString(310, y, "Cant.")
-    c.drawString(390, y, "Precio")
-    c.drawString(470, y, "Subtotal")
+    c.drawString(400, y, folio_texto)
+    y -= 16
+    c.setFont("Helvetica", 10)
+    c.drawString(400, y, f"Fecha: {fecha_hora}")
+    y -= 16
+
+    # Datos de la venta (a la izquierda)
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(70, y, "COMPROBANTE / RECIBO DE PAGO")
+    y -= 18
+    c.setFont("Helvetica", 11)
+    c.drawString(70, y, f"Mesa: {nombre_mesa}")
+    y -= 16
+    c.drawString(70, y, f"Sal\u00f3n / Zona: {sala or '-'}")
+    y -= 16
+    c.drawString(70, y, f"Atendi\u00f3: {camarero or 'Caja'}")
+    y -= 16
+
+    if fiscal_number:
+        c.setFont("Helvetica", 10)
+        c.drawString(70, y, f"Identificaci\u00f3n ({country.get('fiscal_scheme', 'Fiscal')}): {fiscal_number}")
+        y -= 16
+
+    y -= 8
+    c.setLineWidth(1)
+    c.line(70, y, 542, y)
+    y -= 14
+
+    # ---- Detalle de productos -------------------------------------------
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(70, y, "Producto")
+    c.drawString(300, y, "Cant.")
+    c.drawString(380, y, "P. Unit.")
+    c.drawString(465, y, "Subtotal")
     y -= 12
 
     c.setLineWidth(1)
-    c.line(80, y, 532, y)
+    c.line(70, y, 542, y)
     y -= 20
 
-    c.setFont("Helvetica", 11)
+    c.setFont("Helvetica", 10.5)
     for item in items:
         p_subtotal = item["cantidad"] * item["precio"]
-        c.drawString(80, y, str(item["nombre"])[:28])
-        c.drawString(315, y, str(item["cantidad"]))
-        c.drawString(390, y, f"${item['precio']:.2f}")
-        c.drawString(470, y, f"${p_subtotal:.2f}")
+        c.drawString(70, y, str(item["nombre"])[:32])
+        c.drawString(305, y, str(item["cantidad"]))
+        c.drawString(380, y, f"{mon}{item['precio']:.2f}")
+        c.drawString(465, y, f"{mon}{p_subtotal:.2f}")
         y -= 18
 
-        if y < 100:
+        if y < 150:
             c.showPage()
-            y = 750
-            c.setFont("Helvetica", 11)
+            y = 765
+            c.setFont("Helvetica", 10.5)
 
     y -= 5
-    c.line(80, y, 532, y)
-    y -= 22
+    c.setLineWidth(1)
+    c.line(70, y, 542, y)
+    y -= 20
 
+    # ---- Totales y desglose fiscal --------------------------------------
     c.setFont("Helvetica", 11)
-    c.drawString(340, y, f"Subtotal Base: ${subtotal:.2f}")
+    c.drawString(360, y, f"Subtotal (Base Imponible): {mon}{subtotal:.2f}")
     y -= 16
-    c.drawString(340, y, f"IVA ({IVA_PERCENTAGE:.1f}%): ${iva_monto:.2f}")
+    c.drawString(360, y, f"{tax_name} ({IVA_PERCENTAGE:.2f}%): {mon}{iva_monto:.2f}")
+    y -= 20
+
+    c.setLineWidth(1.4)
+    c.line(360, y, 542, y)
+    y -= 18
+    c.setFont("Helvetica-Bold", 15)
+    c.drawString(360, y, f"TOTAL A PAGAR: {mon}{total:.2f}")
     y -= 22
 
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(340, y, f"TOTAL: ${total:.2f}")
+    # Importe en letras
+    c.setFont("Helvetica-Oblique", 10)
+    importe_letras = _numero_a_letras(total)
+    c.drawString(70, y, f"Son: {importe_letras} {mon}")
     y -= 22
 
+    # ---- Pagos -----------------------------------------------------------
     c.setFont("Helvetica", 11)
-    c.drawString(340, y, f"Efectivo: ${efectivo:.2f}")
+    c.drawString(360, y, f"Efectivo: {mon}{efectivo:.2f}")
     y -= 16
-    c.drawString(340, y, f"Tarjeta: ${tarjeta:.2f}")
-    y -= 16
-    c.drawString(340, y, f"Cambio: ${cambio:.2f}")
+    if tarjeta and tarjeta > 0:
+        c.drawString(360, y, f"Tarjeta: {mon}{tarjeta:.2f}")
+        if tarjeta_info:
+            y -= 16
+            c.setFont("Helvetica", 10)
+            c.drawString(375, y, tarjeta_info)
+            c.setFont("Helvetica", 11)
+    else:
+        c.drawString(360, y, f"Tarjeta: {mon}0.00")
+    y -= 18
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(360, y, f"Cambio: {mon}{cambio:.2f}")
+
+    # ---- Firma y pies ----------------------------------------------------
+    y -= 40
+    c.setLineWidth(1)
+    c.line(120, y, 300, y)
+    c.line(330, y, 500, y)
+    y -= 14
+    c.setFont("Helvetica", 10)
+    c.drawCentredString(210, y, "Firma del Cliente")
+    c.drawCentredString(415, y, "Atendi\u00f3 / Caja")
+
+    y -= 30
+    c.setFont("Helvetica", 9)
+    c.drawCentredString(306, y, "Gracias por su visita. \u00a1Vuelva pronto!")
+    y -= 14
+    c.drawCentredString(306, y, f"Moneda: {mon} \u2022 Impuesto aplicado: {tax_name} ({IVA_PERCENTAGE:.2f}%)")
 
     c.setFont("Helvetica-Oblique", 8)
     c.drawCentredString(306, 30, f"Software desarrollado por {DEVELOPER_NAME} - Sistema RestaurantePOS")
@@ -625,6 +962,256 @@ def generar_reporte_cierre_dia_pdf(sales_list: list) -> str:
 
 
 # ============================================================
+# EXPORTACIÓN A EXCEL / CONTABILIDAD (CSV con BOM UTF-8)
+# ============================================================
+
+def exportar_ventas_excel(sales_list: list) -> str:
+    """Exporta las ventas del día a un CSV compatible con Excel.
+
+    Incluye moneda e impuesto por país, datos fiscales y desglose por producto.
+    Se usa BOM UTF-8 para que Excel abra correctamente acentos y símbolos de moneda.
+    """
+    fecha_hoy = datetime.now().strftime("%Y-%m-%d")
+    nombre_archivo = f"Ventas_Contabilidad_{fecha_hoy}_{datetime.now().strftime('%H%M%S')}.csv"
+    ruta_completa = os.path.join(CARPETA_RECIBOS, nombre_archivo)
+
+    country = get_active_country()
+    mon = country["currency"]
+    tax_name = country["tax_name"]
+
+    # Encabezados contables
+    headers = [
+        "Fecha/Hora", "Mesa", "Sala", "Camarero",
+        "Producto", "Cantidad", "Precio Unitario", "Subtotal",
+        f"Impuesto ({tax_name} %)", "Total", "Moneda",
+        "Efectivo", "Tarjeta", "Cambio",
+        "Marca Tarjeta", "Terminal (últ 4)", "Aprobación", "Referencia",
+        "Esquema Fiscal", "Identificación Fiscal"
+    ]
+
+    rows = []
+    for s in sales_list:
+        items = s.get("items", [])
+        if not items:
+            items = [{"nombre": "(sin ítems)", "cantidad": 0, "precio": 0.0}]
+        impuesto = s.get("iva", 0.0)
+        subtotal = s.get("subtotal", 0.0)
+        for it in items:
+            rows.append([
+                s.get("fecha_hora", ""),
+                s.get("mesa", ""),
+                s.get("sala", ""),
+                s.get("camarero", ""),
+                it.get("nombre", ""),
+                it.get("cantidad", 0),
+                it.get("precio", 0.0),
+                it.get("cantidad", 0) * it.get("precio", 0.0),
+                impuesto,
+                s.get("total", 0.0),
+                mon,
+                s.get("efectivo", 0.0),
+                s.get("tarjeta", 0.0),
+                s.get("cambio", 0.0),
+                s.get("card_brand", ""),
+                s.get("card_last4", ""),
+                s.get("card_auth", ""),
+                s.get("card_reference", ""),
+                s.get("fiscal_scheme", country.get("fiscal_scheme", "")),
+                s.get("fiscal_number", "")
+            ])
+
+    # Totales al final
+    total_vendido = sum(s.get("total", 0.0) for s in sales_list)
+    total_subtotal = sum(s.get("subtotal", 0.0) for s in sales_list)
+    total_impuesto = sum(s.get("iva", 0.0) for s in sales_list)
+    total_efectivo = sum(s.get("efectivo", 0.0) for s in sales_list)
+    total_tarjeta = sum(s.get("tarjeta", 0.0) for s in sales_list)
+
+    with open(ruta_completa, "w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(headers)
+        for row in rows:
+            writer.writerow(row)
+        writer.writerow([])
+        writer.writerow(["RESUMEN DEL DÍA"])
+        writer.writerow(["Subtotal", mon, f"{total_subtotal:.2f}"])
+        writer.writerow([f"{tax_name}", mon, f"{total_impuesto:.2f}"])
+        writer.writerow(["TOTAL VENDIDO", mon, f"{total_vendido:.2f}"])
+        writer.writerow(["Efectivo", mon, f"{total_efectivo:.2f}"])
+        writer.writerow(["Tarjeta", mon, f"{total_tarjeta:.2f}"])
+        writer.writerow(["Esquema Fiscal", country.get("fiscal_scheme", ""), ""])
+
+    return ruta_completa
+
+
+# ============================================================
+# IMPRESIÓN DE TICKET TÉRMICO (58 / 80 mm)
+# ============================================================
+
+def _ticket_cols() -> int:
+    """Columnas de ancho según la impresora configurada (80mm=42, 58mm=32)."""
+    return 42 if PRINT_WIDTH_MM >= 80 else 32
+
+
+def _center(text: str, width: int = None) -> str:
+    width = width or _ticket_cols()
+    return text.center(width)
+
+
+def _fill_line(char: str = "=", width: int = None) -> str:
+    width = width or _ticket_cols()
+    return char * width
+
+
+def generar_ticket_texto(
+    nombre_mesa: str,
+    camarero: str,
+    items: list,
+    subtotal: float,
+    iva_monto: float,
+    total: float,
+    efectivo: float,
+    tarjeta: float,
+    cambio: float,
+    tarjeta_info: str = ""
+) -> str:
+    """Genera el texto del ticket térmico (formato POS restaurante)."""
+    W = _ticket_cols()
+    country = get_active_country()
+    mon = country["currency"]
+
+    lines = []
+    lines.append(_center("--- RESTAURANTE POS ---", W))
+    lines.append(_center(country["name"].upper(), W))
+    lines.append(_center(f"Fiscal: {country.get('fiscal_scheme', 'Ninguno')}", W))
+    lines.append(_fill_line("=", W))
+    lines.append(f"Mesa: {nombre_mesa}")
+    lines.append(f"Atendió: {camarero or 'Caja'}")
+    lines.append(f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+    lines.append(_fill_line("-", W))
+
+    # Cabecera de ítems
+    lines.append(f"{'Producto':<16}{'Cant':>4}{'Precio':>8}")
+    lines.append(_fill_line("-", W))
+
+    for item in items:
+        nombre = str(item.get("nombre", ""))
+        cant = item.get("cantidad", 1)
+        precio = item.get("precio", 0.0)
+        sub = cant * precio
+        # Truncar nombre para caber en el ancho del ticket
+        nombre_short = nombre[: (W - 16)]
+        line_1 = f"{nombre_short:<16}{cant:>4} {mon}{precio:>7.2f}"
+        line_2 = f"{'':<6}Subtotal: {mon}{sub:,.2f}"
+        lines.append(line_1[:W])
+        lines.append(line_2[:W])
+
+    lines.append(_fill_line("=", W))
+    lines.append(f"{'Subtotal Base':<28}{mon}{subtotal:,.2f}")
+    lines.append(f"{country['tax_name']} ({IVA_PERCENTAGE:.1f}%):".ljust(28) + f"{mon}{iva_monto:,.2f}")
+    lines.append(f"{'TOTAL':<28}{mon}{total:,.2f}")
+    lines.append(_fill_line("-", W))
+    lines.append(f"Efectivo: {mon}{efectivo:,.2f}")
+    if tarjeta > 0:
+        lines.append(f"Tarjeta:  {mon}{tarjeta:,.2f}")
+        if tarjeta_info:
+            lines.append(f"  {tarjeta_info}")
+    lines.append(f"Cambio:   {mon}{max(0.0, cambio):,.2f}")
+    lines.append(_fill_line("=", W))
+    lines.append(_center("¡Gracias por su visita!", W))
+    lines.append(_center(f"{DEVELOPER_NAME} - RestaurantePOS", W))
+    lines.append("")
+    lines.append("")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def imprimir_ticket_termico(
+    nombre_mesa: str,
+    camarero: str,
+    items: list,
+    subtotal: float,
+    iva_monto: float,
+    total: float,
+    efectivo: float,
+    tarjeta: float,
+    cambio: float,
+    tarjeta_info: str = ""
+) -> str:
+    """Imprime un ticket térmico y devuelve la ruta del texto generado.
+
+    Compatible con impresoras térmicas 58mm/80mm sobre Windows:
+      1) Si `win32print` está disponible, envía el texto a la impresora
+         predeterminada (driver Genérico / Solo texto).
+      2) De lo contrario, guarda un .txt y lo abre para imprimir manualmente.
+    """
+    if not PRINT_ENABLED:
+        return ""
+
+    texto = generar_ticket_texto(
+        nombre_mesa, camarero, items, subtotal, iva_monto,
+        total, efectivo, tarjeta, cambio, tarjeta_info
+    )
+
+    # Ruta de archivo de respaldo / impresión manual
+    sanitized = "".join(c for c in nombre_mesa if c.isalnum() or c in (" ", "_")).strip()
+    filename = f"Ticket_{sanitized.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+    file_path = os.path.join(CARPETA_RECIBOS, filename)
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(texto)
+    except Exception as e:
+        print(f"Error guardando ticket: {e}")
+
+    # Impresión real vía win32print (si está disponible)
+    try:
+        import win32print
+        import win32ui
+        # Convertir texto a imagen no es trivial sin driver específico;
+        # intentamos la impresora 'Generic / Text Only' si existe, si no, la por defecto.
+        printers = [p[2] for p in win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL)]
+        target = None
+        for name in printers:
+            if "text" in name.lower() or "generic" in name.lower():
+                target = name
+                break
+        if not target:
+            target = win32print.GetDefaultPrinter()
+
+        if target:
+            try:
+                hprinter = win32print.OpenPrinter(target)
+                try:
+                    win32print.StartDocPrinter(hprinter, 1, ("Ticket", None, "RAW"))
+                    win32print.StartPagePrinter(hprinter)
+                    # UTF-8 bytes para impresoras que soportan codificación; fallback a cp850
+                    try:
+                        data = texto.encode("utf-8")
+                    except Exception:
+                        data = texto.encode("cp850", errors="replace")
+                    win32print.WritePrinter(hprinter, data)
+                    win32print.EndPagePrinter(hprinter)
+                    win32print.EndDocPrinter(hprinter)
+                finally:
+                    win32print.ClosePrinter(hprinter)
+                return file_path
+            except Exception as e:
+                print(f"Error imprimiendo vía win32print: {e}")
+    except ImportError:
+        pass
+
+    # Fallback: abrir el archivo de texto para imprimir manualmente
+    try:
+        if sys.platform == "win32":
+            os.startfile(os.path.abspath(file_path))
+    except Exception:
+        pass
+
+    return file_path
+
+
+# ============================================================
 # SERVIDOR FASTAPI Y ENDPOINTS DE SINCRONIZACIÓN
 # ============================================================
 
@@ -652,8 +1239,49 @@ def health_check():
         "app": "RestaurantePOS",
         "version": APP_VERSION,
         "sync_version": last_sync_version,
-        "local_ip": get_local_ip()
+        "local_ip": get_local_ip(),
+        "country": get_active_country()
     }
+
+
+@api.get("/countries")
+def get_countries():
+    """Lista de países soportados y personalizados (para configuración)."""
+    return all_countries()
+
+
+@api.get("/config")
+def get_config():
+    """Configuración activa del negocio (país, impuesto, moneda, fiscal, impresión)."""
+    with db_lock:
+        return get_active_country()
+
+
+class CountryPayload(BaseModel):
+    code: str
+    print_width_mm: Optional[int] = None
+    print_enabled: Optional[bool] = None
+
+
+@api.post("/config")
+def update_config(payload: CountryPayload):
+    """Aplica el país seleccionado y preferencias de impresión (sincronizado)."""
+    global PRINT_WIDTH_MM, PRINT_ENABLED
+    apply_country(payload.code)
+    with db_lock:
+        if payload.print_width_mm is not None:
+            PRINT_WIDTH_MM = int(payload.print_width_mm)
+        if payload.print_enabled is not None:
+            PRINT_ENABLED = bool(payload.print_enabled)
+        mark_database_changed()
+    return get_active_country()
+
+
+def _ventas_de_hoy() -> list:
+    """Ventas del DÍA ACTUAL (hora local). Fuente única del cierre para todas las apps.
+    Así el cierre de día es coherente entre la PC y los teléfonos."""
+    hoy = datetime.now().strftime("%Y-%m-%d")
+    return [dict(s) for s in daily_sales_db if str(s.get("fecha_hora", "")).startswith(hoy)]
 
 
 @api.get("/sync-fast")
@@ -667,8 +1295,9 @@ def sync_fast(areaId: Optional[int] = None, version: int = 0):
             "areas": serialize_areas() if needs_full else [],
             "products": products_db if needs_full else [],
             "tables": serialize_tables_dict(areaId),
-            "daily_sales": [dict(s) for s in daily_sales_db],
-            "day_reset": last_day_reset_ts
+            "daily_sales": _ventas_de_hoy(),
+            "day_reset": last_day_reset_ts,
+            "country": get_active_country()
         }
 
 
@@ -826,6 +1455,26 @@ def register_sale(payload: SalePayload):
         if not sala and payload.areaId is not None and payload.areaId in rooms_db:
             sala = rooms_db[payload.areaId]["name"]
 
+        # Información de pago con tarjeta (terminal TPV / banco)
+        card_brand = (payload.cardBrand or "").strip()
+        card_last4 = (payload.cardLast4 or "").strip()
+        card_auth = (payload.cardAuth or "").strip()
+        card_ref = (payload.cardReference or "").strip()
+        fiscal_num = (payload.fiscalNumber or "").strip()
+        payment_method = (payload.paymentMethod or "tarjeta").strip().lower()
+        is_contactless = (payment_method == "contactless" or payment_method == "tap")
+
+        tarjeta_info = ""
+        if card_brand or card_last4:
+            if is_contactless:
+                tarjeta_info = f"NFC/TAP {card_brand} ••••{card_last4}".strip()
+            else:
+                tarjeta_info = f"{card_brand} ••••{card_last4}".strip()
+        if card_auth:
+            tarjeta_info += f" | Aprob.: {card_auth}"
+        if card_ref:
+            tarjeta_info += f" | Ref: {card_ref}"
+
         sale_record = {
             "id": int(time.time() * 1000),
             "fecha_hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -838,7 +1487,19 @@ def register_sale(payload: SalePayload):
             "total": total_due,
             "efectivo": efectivo,
             "tarjeta": tarjeta,
-            "cambio": cambio
+            "cambio": cambio,
+            "card_brand": card_brand,
+            "card_last4": card_last4,
+            "card_auth": card_auth,
+            "card_reference": card_ref,
+            "fiscal_number": fiscal_num,
+            "tarjeta_info": tarjeta_info,
+            "payment_method": payment_method,
+            "contactless": is_contactless,
+            # Datos fiscales por país (para CFDI/FEL/CCF/etc.)
+            "fiscal_scheme": get_active_country().get("fiscal_scheme", ""),
+            "currency": get_active_country().get("currency", "$"),
+            "tax_name": get_active_country().get("tax_name", "IVA")
         }
         daily_sales_db.append(sale_record)
         mark_database_changed()
@@ -959,6 +1620,42 @@ async def upload_pdf(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@api.post("/upload-image")
+async def upload_image(
+    file: UploadFile = File(...),
+    product_id: Optional[int] = Form(None)
+):
+    """Sube la foto de un producto desde el teléfono al servidor (PC).
+    Devuelve la URL http://ip:5000/images/<archivo> que se guarda en imageUri."""
+    allowed = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in allowed:
+        raise HTTPException(status_code=400, detail="Formato de imagen no permitido.")
+
+    dest_name = f"prod_{int(time.time() * 1000)}{ext}"
+    file_path = os.path.join(CARPETA_IMAGENES, dest_name)
+
+    contents = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(contents)
+
+    image_uri = f"http://{get_local_ip()}:{SERVER_PORT}/images/{dest_name}"
+
+    if product_id is not None:
+        with db_lock:
+            for p in products_db:
+                if p["id"] == product_id:
+                    p["imageUri"] = image_uri
+                    mark_database_changed()
+                    break
+
+    return {
+        "status": "ok",
+        "filename": dest_name,
+        "imageUri": image_uri
+    }
+
+
 # ============================================================
 # SERVIDOR UVICORN EN HILO SECUNDARIO
 # ============================================================
@@ -1060,6 +1757,11 @@ class CierreDiaDialog(QDialog):
         btn_pdf.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_pdf.clicked.connect(self.export_pdf)
 
+        btn_excel = QPushButton("📊 Exportar Excel / Contabilidad")
+        btn_excel.setStyleSheet("background-color: #16A34A; color: white; font-weight: bold; padding: 10px; border-radius: 6px; font-size: 13px;")
+        btn_excel.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_excel.clicked.connect(self.export_excel)
+
         btn_reset = QPushButton("🔄 Finalizar Día / Reiniciar Caja")
         btn_reset.setStyleSheet("background-color: #DC2626; color: white; font-weight: bold; padding: 10px; border-radius: 6px; font-size: 13px;")
         btn_reset.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1070,6 +1772,7 @@ class CierreDiaDialog(QDialog):
         btn_close.clicked.connect(self.accept)
 
         btn_layout.addWidget(btn_pdf)
+        btn_layout.addWidget(btn_excel)
         btn_layout.addWidget(btn_reset)
         btn_layout.addWidget(btn_close)
 
@@ -1094,6 +1797,26 @@ class CierreDiaDialog(QDialog):
             QMessageBox.information(self, "Reporte Generado", f"Reporte de cierre guardado y abierto:\n{pdf_path}")
         except Exception as e:
             QMessageBox.warning(self, "Error", f"No se pudo generar el reporte PDF: {e}")
+
+    def export_excel(self):
+        with db_lock:
+            sales = list(daily_sales_db)
+
+        if not sales:
+            QMessageBox.information(self, "Aviso", "No hay ventas registradas el día de hoy.")
+            return
+
+        try:
+            csv_path = exportar_ventas_excel(sales)
+            if sys.platform == "win32":
+                os.startfile(os.path.abspath(csv_path))
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", os.path.abspath(csv_path)])
+            else:
+                subprocess.Popen(["xdg-open", os.path.abspath(csv_path)])
+            QMessageBox.information(self, "Exportado", f"Archivo de contabilidad (Excel/CSV) guardado y abierto:\n{csv_path}")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"No se pudo exportar a Excel: {e}")
 
     def reset_day(self):
         global last_day_reset_ts
@@ -1568,6 +2291,13 @@ class CashierWindow(QMainWindow):
         )
         btn_open_folder.clicked.connect(self.open_receipts_folder)
 
+        btn_country = QPushButton("🌎 País")
+        btn_country.setStyleSheet(
+            "background-color: #16A34A; color: white; border: 1px solid #22C55E; "
+            "padding: 5px 10px; border-radius: 4px; font-size: 12px;"
+        )
+        btn_country.clicked.connect(self.config_country_dialog)
+
         btn_tax = QPushButton("⚙️ IVA (%)")
         btn_tax.setStyleSheet(
             "background-color: #334155; color: white; border: 1px solid #475569; "
@@ -1586,6 +2316,7 @@ class CashierWindow(QMainWindow):
         banner_layout.addStretch()
         banner_layout.addWidget(btn_cierre)
         banner_layout.addWidget(btn_menu)
+        banner_layout.addWidget(btn_country)
         banner_layout.addWidget(btn_open_folder)
         banner_layout.addWidget(btn_tax)
         banner_layout.addWidget(btn_about)
@@ -1783,7 +2514,7 @@ class CashierWindow(QMainWindow):
                     btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
                     if is_occ:
-                        btn.setText(f"{display_label}\n${total_val:.2f}")
+                        btn.setText(f"{display_label}\n{get_active_country()['currency']}{total_val:,.2f}")
                         btn.setStyleSheet(
                             "background-color: #DC2626; color: white; font-weight: bold; "
                             "font-size: 13px; border-radius: 8px;"
@@ -1976,7 +2707,222 @@ class CashierWindow(QMainWindow):
 
         if ok:
             IVA_PERCENTAGE = val
+            mark_database_changed()
             self.refresh_ui()
+
+    def config_country_dialog(self):
+        """Diálogo para elegir el país, configurar impresión y ver datos fiscales."""
+        global PRINT_WIDTH_MM, PRINT_ENABLED
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("🌎 Configuración Multipaís (POS Restaurante)")
+        dialog.resize(520, 520)
+        layout = QVBoxLayout()
+        layout.setSpacing(12)
+
+        layout.addWidget(QLabel("<b>Selecciona el país del negocio:</b>"))
+        combo_country = QComboBox()
+
+        def populate_combo():
+            combo_country.blockSignals(True)
+            combo_country.clear()
+            for c in all_countries():
+                combo_country.addItem(
+                    f"{c['name']}  •  {c['fiscal_scheme']}  •  {c['tax_name']} {c['tax_rate']:.0f}%  •  {c['currency']}",
+                    c["code"]
+                )
+            idx = 0
+            for i in range(combo_country.count()):
+                if combo_country.itemData(i) == active_country_code:
+                    idx = i
+                    break
+            combo_country.setCurrentIndex(idx)
+            combo_country.blockSignals(False)
+            refresh_info()
+
+        layout.addWidget(combo_country)
+
+        btn_add_country = QPushButton("➕ Añadir país personalizado")
+        btn_add_country.setStyleSheet(
+            "background-color: #0EA5E9; color: white; font-weight: bold; padding: 8px; border-radius: 6px;"
+        )
+        btn_add_country.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_add_country.clicked.connect(lambda: self.add_custom_country_dialog(populate_combo))
+        layout.addWidget(btn_add_country)
+
+        info_frame = QFrame()
+        info_frame.setStyleSheet("background: #F1F5F9; border-radius: 6px; padding: 10px; border: 1px solid #E2E8F0;")
+        info_layout = QVBoxLayout(info_frame)
+        lbl_info = QLabel()
+        lbl_info.setWordWrap(True)
+        info_layout.addWidget(lbl_info)
+        layout.addWidget(info_frame)
+
+        def refresh_info():
+            c = combo_country.currentData()
+            country = get_country(c)
+            lbl_info.setText(
+                f"<b>{country['name']}</b><br>"
+                f"• Moneda: <b>{country['currency']}</b> ({country['currency_code']})<br>"
+                f"• Impuesto: <b>{country['tax_name']} {country['tax_rate']:.1f}%</b><br>"
+                f"• Fiscalización: <b>{country['fiscal_scheme']}</b>{' (obligatoria)' if country['fiscal_required'] else ''}<br>"
+                f"<span style='color:#475569;font-size:11px'>Al elegir país se actualiza automáticamente el impuesto "
+                f"en ambas apps (PC y teléfonos).</span>"
+            )
+
+        refresh_info()
+        combo_country.currentIndexChanged.connect(refresh_info)
+        populate_combo()
+
+        # Preferencias de impresión
+        layout.addWidget(QLabel("<b>🖨️ Impresora térmica de tickets:</b>"))
+        width_layout = QHBoxLayout()
+        width_layout.addWidget(QLabel("Ancho:"))
+        combo_width = QComboBox()
+        combo_width.addItem("80 mm (ancho estándar)", 80)
+        combo_width.addItem("58 mm (mini)", 58)
+        combo_width.setCurrentIndex(0 if PRINT_WIDTH_MM >= 80 else 1)
+        width_layout.addWidget(combo_width)
+        width_layout.addStretch()
+        layout.addLayout(width_layout)
+
+        chk_print = QCheckBox("Imprimir ticket automáticamente al cobrar")
+        chk_print.setChecked(PRINT_ENABLED)
+        layout.addWidget(chk_print)
+
+        layout.addStretch()
+
+        btn_apply = QPushButton("Aplicar Configuración")
+        btn_apply.setStyleSheet("background-color: #16A34A; color: white; font-weight: bold; padding: 12px;")
+
+        def apply():
+            global PRINT_WIDTH_MM, PRINT_ENABLED
+            apply_country(combo_country.currentData())
+            with db_lock:
+                PRINT_WIDTH_MM = int(combo_width.currentData())
+                PRINT_ENABLED = chk_print.isChecked()
+                mark_database_changed()
+            dialog.accept()
+            self.refresh_ui()
+            QMessageBox.information(
+                self,
+                "Configuración Aplicada",
+                f"País: {get_active_country()['name']}\n"
+                f"Impuesto: {get_active_country()['tax_name']} {IVA_PERCENTAGE:.1f}%\n"
+                f"Fiscal: {get_active_country()['fiscal_scheme']}\n"
+                f"Impresión térmica: {'activada' if PRINT_ENABLED else 'desactivada'} ({PRINT_WIDTH_MM} mm)\n\n"
+                f"Se sincronizará automáticamente con los teléfonos."
+            )
+
+        btn_apply.clicked.connect(apply)
+        layout.addWidget(btn_apply)
+
+        btn_close = QPushButton("Cerrar")
+        btn_close.clicked.connect(dialog.accept)
+        layout.addWidget(btn_close)
+
+        dialog.setLayout(layout)
+        dialog.exec()
+
+    def add_custom_country_dialog(self, reload_combo):
+        """Diálogo para añadir un país personalizado (nombre, moneda, impuesto, fiscal)."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("➕ Añadir país personalizado")
+        dlg.resize(440, 360)
+        lay = QVBoxLayout()
+        lay.setSpacing(10)
+
+        lay.addWidget(QLabel("<b>Define tu propio país/negocio:</b>"))
+        lay.addWidget(QLabel("Nombre del país:"))
+        txt_name = QLineEdit()
+        txt_name.setPlaceholderText("Ej. Mi País")
+        lay.addWidget(txt_name)
+
+        row_cur = QHBoxLayout()
+        row_cur.addWidget(QLabel("Símbolo moneda:"))
+        txt_currency = QLineEdit()
+        txt_currency.setPlaceholderText("Ej. ¢, S/., €")
+        row_cur.addWidget(txt_currency)
+        row_cur.addWidget(QLabel("Código moneda:"))
+        txt_curcode = QLineEdit()
+        txt_curcode.setPlaceholderText("Ej. ABC")
+        row_cur.addWidget(txt_curcode)
+        lay.addLayout(row_cur)
+
+        row_tax = QHBoxLayout()
+        row_tax.addWidget(QLabel("Impuesto (nombre):"))
+        txt_taxname = QLineEdit()
+        txt_taxname.setPlaceholderText("Ej. IVA, IGV, ISC")
+        row_tax.addWidget(txt_taxname)
+        row_tax.addWidget(QLabel("Tasa %:"))
+        spin_rate = QDoubleSpinBox()
+        spin_rate.setRange(0.0, 100.0)
+        spin_rate.setDecimals(1)
+        spin_rate.setValue(16.0)
+        spin_rate.setSuffix(" %")
+        row_tax.addWidget(spin_rate)
+        lay.addLayout(row_tax)
+
+        lay.addWidget(QLabel("Esquema fiscal (opcional):"))
+        txt_scheme = QLineEdit()
+        txt_scheme.setPlaceholderText("Ej. CFDI, FEL, Ninguno")
+        lay.addWidget(txt_scheme)
+
+        err = QLabel("")
+        err.setStyleSheet("color: #DC2626;")
+        err.setWordWrap(True)
+        lay.addWidget(err)
+
+        def save():
+            name = txt_name.text().strip()
+            currency = txt_currency.text().strip() or "$"
+            curcode = txt_curcode.text().strip().upper() or "XXX"
+            taxname = txt_taxname.text().strip() or "Impuesto"
+            scheme = txt_scheme.text().strip() or "Ninguno"
+            if not name:
+                err.setText("El nombre del país es obligatorio.")
+                return
+
+            # Código único autogenerado (CUST1, CUST2, ...)
+            base = "CUST"
+            n = 1
+            existing = {c["code"].upper() for c in all_countries()}
+            while f"{base}{n}" in existing:
+                n += 1
+            code = f"{base}{n}"
+
+            CUSTOM_COUNTRIES.append({
+                "code": code,
+                "name": name,
+                "currency": currency,
+                "currency_code": curcode,
+                "tax_name": taxname,
+                "tax_rate": float(spin_rate.value()),
+                "fiscal_scheme": scheme,
+                "fiscal_required": False,
+            })
+            with db_lock:
+                mark_database_changed()
+            reload_combo()
+            dlg.accept()
+            QMessageBox.information(
+                self,
+                "País añadido",
+                f"Se añadió '{name}' ({currency} • {taxname} {spin_rate.value():.1f}%).\n"
+                f"Ahora selecciónalo en la lista y pulsa 'Aplicar Configuración'."
+            )
+
+        btn_save = QPushButton("Añadir País")
+        btn_save.setStyleSheet("background-color: #16A34A; color: white; font-weight: bold; padding: 10px;")
+        btn_save.clicked.connect(save)
+        lay.addWidget(btn_save)
+
+        btn_cancel = QPushButton("Cancelar")
+        btn_cancel.clicked.connect(dlg.reject)
+        lay.addWidget(btn_cancel)
+
+        dlg.setLayout(lay)
+        dlg.exec()
 
     def on_tab_changed(self, index: int):
         with db_lock:
@@ -2012,7 +2958,7 @@ class CashierWindow(QMainWindow):
                         border_style = "border: 3px solid #38BDF8; font-weight: bold;" if is_selected else "border: 1px solid transparent;"
 
                         if is_occ:
-                            btn.setText(f"{display_label}\n${tot:.2f}")
+                            btn.setText(f"{display_label}\n{get_active_country()['currency']}{tot:,.2f}")
                             btn.setStyleSheet(
                                 f"background-color: #DC2626; color: white; font-weight: bold; "
                                 f"font-size: 13px; border-radius: 8px; {border_style}"
@@ -2039,6 +2985,10 @@ class CashierWindow(QMainWindow):
                     display_header_name = f"Mesa {num}"
 
         if data:
+            country_cfg = get_active_country()
+            mon = country_cfg["currency"]
+            tax_name = country_cfg["tax_name"]
+
             camarero_txt = data.get("camarero") or "Caja"
             self.lbl_selected_table.setText(f"<h2><b>{display_header_name} ({room_name})</b></h2>")
             self.lbl_waiter_info.setText(f"Camarero / Atiende: <b>{camarero_txt}</b>")
@@ -2058,11 +3008,11 @@ class CashierWindow(QMainWindow):
 
                 self.table_items.setItem(row_idx, 1, QTableWidgetItem(str(item.get("nombre", ""))))
 
-                item_precio = QTableWidgetItem(f"${precio:.2f}")
+                item_precio = QTableWidgetItem(f"{mon}{precio:,.2f}")
                 item_precio.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 self.table_items.setItem(row_idx, 2, item_precio)
 
-                item_subt = QTableWidgetItem(f"${subt:.2f}")
+                item_subt = QTableWidgetItem(f"{mon}{subt:,.2f}")
                 item_subt.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 self.table_items.setItem(row_idx, 3, item_subt)
                 self.table_items.setCellWidget(row_idx, 4, self.build_qty_widget(item))
@@ -2071,16 +3021,19 @@ class CashierWindow(QMainWindow):
             monto_iva = subtotal_base * (IVA_PERCENTAGE / 100.0)
             total_final = subtotal_base + monto_iva
 
-            self.lbl_subtotal.setText(f"Subtotal: ${subtotal_base:.2f}")
-            self.lbl_tax_info.setText(f"IVA ({IVA_PERCENTAGE:.1f}%): ${monto_iva:.2f}")
-            self.lbl_total.setText(f"Total a Pagar: ${total_final:.2f}")
+            self.lbl_subtotal.setText(f"Subtotal: {mon}{subtotal_base:,.2f}")
+            self.lbl_tax_info.setText(f"{tax_name} ({IVA_PERCENTAGE:.1f}%): {mon}{monto_iva:,.2f}")
+            self.lbl_total.setText(f"Total a Pagar: {mon}{total_final:,.2f}")
         else:
+            country_cfg = get_active_country()
+            mon = country_cfg["currency"]
+            tax_name = country_cfg["tax_name"]
             self.lbl_selected_table.setText("<h2><b>Selecciona una Mesa</b></h2>")
             self.lbl_waiter_info.setText("Camarero: -")
             self.table_items.setRowCount(0)
-            self.lbl_subtotal.setText("Subtotal: $0.00")
-            self.lbl_tax_info.setText(f"IVA ({IVA_PERCENTAGE:.1f}%): $0.00")
-            self.lbl_total.setText("Total a Pagar: $0.00")
+            self.lbl_subtotal.setText(f"Subtotal: {mon}0.00")
+            self.lbl_tax_info.setText(f"{tax_name} ({IVA_PERCENTAGE:.1f}%): {mon}0.00")
+            self.lbl_total.setText(f"Total a Pagar: {mon}0.00")
 
     # --------------------------------------------------------
     # AJUSTAR CANTIDADES DE LA COMANDA (BOTONES + / −)
@@ -2338,14 +3291,17 @@ class CashierWindow(QMainWindow):
 
         dialog = QDialog(self)
         dialog.setWindowTitle(f"Cobrar {display_name} ({room['name']})")
-        dialog.resize(390, 360)
+        dialog.resize(440, 560)
 
         layout = QVBoxLayout()
         layout.setSpacing(10)
 
+        country = get_active_country()
+        mon = country["currency"]
+
         # Configuración de IVA dinámica en el cobro
         iva_layout = QHBoxLayout()
-        iva_layout.addWidget(QLabel("<b>IVA (%):</b>"))
+        iva_layout.addWidget(QLabel(f"<b>{country['tax_name']} (%):</b>"))
         txt_iva = QLineEdit(f"{IVA_PERCENTAGE:.1f}")
         txt_iva.setFixedWidth(70)
         iva_layout.addWidget(txt_iva)
@@ -2356,15 +3312,47 @@ class CashierWindow(QMainWindow):
         lbl_summary.setStyleSheet("font-size: 14px; background: #F1F5F9; padding: 10px; border-radius: 6px; border: 1px solid #CBD5E1;")
         layout.addWidget(lbl_summary)
 
-        layout.addWidget(QLabel("<b>Monto en Efectivo ($):</b>"))
+        layout.addWidget(QLabel(f"<b>Monto en Efectivo ({mon}):</b>"))
         txt_cash = QLineEdit("0.00")
         layout.addWidget(txt_cash)
 
-        layout.addWidget(QLabel("<b>Monto en Tarjeta ($):</b>"))
+        layout.addWidget(QLabel(f"<b>Monto en Tarjeta ({mon}):</b>"))
         txt_card = QLineEdit("0.00")
         layout.addWidget(txt_card)
 
-        lbl_change = QLabel("Cambio / Vuelto: $0.00")
+        # Datos de la terminal bancaria (TPV)
+        lbl_tpv = QLabel(f"<b>💳 Datos de la Terminal (TPV):</b>")
+        lbl_tpv.setStyleSheet("font-size: 12px; margin-top: 4px;")
+        layout.addWidget(lbl_tpv)
+
+        tpv_row1 = QHBoxLayout()
+        txt_brand = QLineEdit()
+        txt_brand.setPlaceholderText("Marca (Visa/MC)")
+        txt_last4 = QLineEdit()
+        txt_last4.setMaximumWidth(90)
+        txt_last4.setPlaceholderText("Últ. 4")
+        tpv_row1.addWidget(txt_brand)
+        tpv_row1.addWidget(txt_last4)
+        layout.addLayout(tpv_row1)
+
+        tpv_row2 = QHBoxLayout()
+        txt_auth = QLineEdit()
+        txt_auth.setPlaceholderText("Cód. aprobación")
+        txt_ref = QLineEdit()
+        txt_ref.setPlaceholderText("Referencia")
+        chk_contactless = QCheckBox("NFC/TAP (contactless)")
+        tpv_row2.addWidget(txt_auth)
+        tpv_row2.addWidget(txt_ref)
+        tpv_row2.addWidget(chk_contactless)
+        layout.addLayout(tpv_row2)
+
+        # Identificación fiscal del cliente (NIT/CUI/RUT según país)
+        layout.addWidget(QLabel(f"<b>🧾 {country.get('fiscal_scheme', 'Fiscal')}: Identificación del cliente</b>"))
+        txt_fiscal = QLineEdit()
+        txt_fiscal.setPlaceholderText("NIT / CUI / RUT / Cédula (opcional)")
+        layout.addWidget(txt_fiscal)
+
+        lbl_change = QLabel(f"Cambio / Vuelto: {mon}0.00")
         lbl_change.setStyleSheet("font-size: 15px; font-weight: bold; color: #16A34A;")
         layout.addWidget(lbl_change)
 
@@ -2384,8 +3372,8 @@ class CashierWindow(QMainWindow):
             calculated["total_due"] = total_due
 
             lbl_summary.setText(
-                f"<b>Subtotal:</b> ${subtotal_base:.2f} | <b>IVA ({pct:.1f}%):</b> ${monto_iva:.2f}<br>"
-                f"<h3><font color='#16A34A'><b>TOTAL A PAGAR: ${total_due:.2f}</b></font></h3>"
+                f"<b>Subtotal:</b> {mon}{subtotal_base:.2f} | <b>{country['tax_name']} ({pct:.1f}%):</b> {mon}{monto_iva:.2f}<br>"
+                f"<h3><font color='#16A34A'><b>TOTAL A PAGAR: {mon}{total_due:.2f}</b></font></h3>"
             )
 
             try:
@@ -2395,10 +3383,10 @@ class CashierWindow(QMainWindow):
                 diff = paid - total_due
                 if diff >= -0.01:
                     lbl_change.setStyleSheet("font-size: 15px; font-weight: bold; color: #16A34A;")
-                    lbl_change.setText(f"Cambio / Vuelto: ${max(0.0, diff):.2f}")
+                    lbl_change.setText(f"Cambio / Vuelto: {mon}{max(0.0, diff):.2f}")
                 else:
                     lbl_change.setStyleSheet("font-size: 15px; font-weight: bold; color: #DC2626;")
-                    lbl_change.setText(f"Falta: ${abs(diff):.2f}")
+                    lbl_change.setText(f"Falta: {mon}{abs(diff):.2f}")
             except ValueError:
                 pass
 
@@ -2409,14 +3397,15 @@ class CashierWindow(QMainWindow):
         recalculate()
         txt_card.setText(f"{calculated['total_due']:.2f}")
 
-        btn_finish = QPushButton("🖨️ Confirmar Pago y Generar Recibo PDF")
+        btn_finish = QPushButton("💵 Confirmar Pago: Recibo PDF + Ticket Térmico")
         btn_finish.setStyleSheet(
             "background-color: #16A34A; color: white; font-weight: bold; padding: 12px; font-size: 14px; border-radius: 6px;"
         )
         btn_finish.clicked.connect(
             lambda: self.process_payment(
                 dialog, txt_cash, txt_card, mesa_data, subtotal_base,
-                calculated["monto_iva"], calculated["total_due"], room["name"], display_name
+                calculated["monto_iva"], calculated["total_due"], room["name"], display_name,
+                txt_brand, txt_last4, txt_auth, txt_ref, txt_fiscal, chk_contactless
             )
         )
         layout.addWidget(btn_finish)
@@ -2434,7 +3423,13 @@ class CashierWindow(QMainWindow):
         monto_iva: float,
         total_due: float,
         room_name: str,
-        display_name: str
+        display_name: str,
+        txt_brand: QLineEdit = None,
+        txt_last4: QLineEdit = None,
+        txt_auth: QLineEdit = None,
+        txt_ref: QLineEdit = None,
+        txt_fiscal: QLineEdit = None,
+        chk_contactless: QCheckBox = None
     ):
         try:
             cash = float(txt_cash.text()) if txt_cash.text() else 0.0
@@ -2447,6 +3442,30 @@ class CashierWindow(QMainWindow):
         if change < -0.01:
             QMessageBox.warning(self, "Pago insuficiente", f"Falta pagar ${abs(change):.2f}")
             return
+
+        # Datos de la terminal / tarjeta y fiscal
+        def _t(widget: QLineEdit) -> str:
+            return (widget.text().strip() if widget else "")
+
+        card_brand = _t(txt_brand)
+        card_last4 = _t(txt_last4)
+        card_auth = _t(txt_auth)
+        card_ref = _t(txt_ref)
+        fiscal_num = _t(txt_fiscal)
+        is_contactless = bool(chk_contactless and chk_contactless.isChecked())
+        payment_method = "contactless" if is_contactless else "tarjeta"
+
+        tarjeta_info = ""
+        if card_brand or card_last4:
+            prefix = "NFC/TAP " if is_contactless else ""
+            tarjeta_info = f"{prefix}{card_brand} ••••{card_last4}".strip()
+        if card_auth:
+            tarjeta_info += f" | Aprob.: {card_auth}"
+        if card_ref:
+            tarjeta_info += f" | Ref: {card_ref}"
+
+        country = get_active_country()
+        mon = country["currency"]
 
         # 1. Guardar registro de venta para el Cierre de Día
         sale_record = {
@@ -2461,15 +3480,25 @@ class CashierWindow(QMainWindow):
             "total": float(total_due),
             "efectivo": float(cash),
             "tarjeta": float(card),
-            "cambio": float(max(0.0, change))
+            "cambio": float(max(0.0, change)),
+            "card_brand": card_brand,
+            "card_last4": card_last4,
+            "card_auth": card_auth,
+            "card_reference": card_ref,
+            "fiscal_number": fiscal_num,
+            "tarjeta_info": tarjeta_info,
+            "payment_method": payment_method,
+            "contactless": is_contactless,
+            "fiscal_scheme": country.get("fiscal_scheme", ""),
+            "currency": mon,
+            "tax_name": country.get("tax_name", "IVA")
         }
 
-        # 2. Generar recibo en PDF en segundo plano
-        pdf_path = ""
+        # 2. Generar recibo en PDF
         try:
             full_table_desc = f"{display_name} ({room_name})"
-            pdf_path = generar_recibo_pdf(
-                nombre_mesa=full_table_desc,
+            generar_recibo_pdf(
+                nombre_mesa=display_name,
                 camarero=mesa_data.get("camarero", ""),
                 items=copy.deepcopy(mesa_data.get("items", [])),
                 subtotal=subtotal,
@@ -2477,10 +3506,31 @@ class CashierWindow(QMainWindow):
                 total=total_due,
                 efectivo=cash,
                 tarjeta=card,
-                cambio=max(0.0, change)
+                cambio=max(0.0, change),
+                tarjeta_info=tarjeta_info,
+                fiscal_number=fiscal_num,
+                folio=int(sale_record["id"] or 0),
+                sala=room_name
             )
         except Exception as e:
             print(f"Error generando PDF: {e}")
+
+        # 2b. Impresión de ticket térmico (58/80mm) — configurable
+        try:
+            imprimir_ticket_termico(
+                nombre_mesa=display_name,
+                camarero=mesa_data.get("camarero", ""),
+                items=copy.deepcopy(mesa_data.get("items", [])),
+                subtotal=subtotal,
+                iva_monto=monto_iva,
+                total=total_due,
+                efectivo=cash,
+                tarjeta=card,
+                cambio=max(0.0, change),
+                tarjeta_info=tarjeta_info
+            )
+        except Exception as e:
+            print(f"Error imprimiendo ticket: {e}")
 
         # 3. Vaciar mesa y sincronizar al instante (0ms)
         with db_lock:
