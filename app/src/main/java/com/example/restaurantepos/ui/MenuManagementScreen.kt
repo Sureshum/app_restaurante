@@ -1,0 +1,394 @@
+package com.example.restaurantepos.ui
+
+import android.content.Context
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.example.restaurantepos.data.ProductEntity
+import java.io.File
+import java.io.FileOutputStream
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MenuManagementScreen(
+    isAdmin: Boolean,
+    products: List<ProductEntity>,
+    onUpdateProduct: (ProductEntity) -> Unit,
+    onDeleteProduct: (ProductEntity) -> Unit,
+    onAddProductClick: () -> Unit,
+    onBack: () -> Unit
+) {
+    val categories = remember(products) {
+        listOf("TODOS") + products.map { it.category.trim() }.distinctBy { it.uppercase() }
+    }
+    var selectedCategory by remember { mutableStateOf("TODOS") }
+
+    val filteredProducts = remember(selectedCategory, products) {
+        if (selectedCategory == "TODOS") products
+        else products.filter { it.category.trim().equals(selectedCategory, ignoreCase = true) }
+    }
+
+    var editingProduct by remember { mutableStateOf<ProductEntity?>(null) }
+    var productToDelete by remember { mutableStateOf<ProductEntity?>(null) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Gestión de Menú", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Atrás")
+                    }
+                }
+            )
+        },
+        floatingActionButton = {
+            if (isAdmin) {
+                FloatingActionButton(
+                    onClick = onAddProductClick,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = Color.White
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Agregar Producto")
+                }
+            }
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp, horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(categories) { category ->
+                    val isSelected = category == selectedCategory
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { selectedCategory = category },
+                        label = { Text(category.uppercase()) }
+                    )
+                }
+            }
+
+            HorizontalDivider()
+
+            if (filteredProducts.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No hay productos disponibles.")
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 140.dp),
+                    contentPadding = PaddingValues(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(filteredProducts, key = { it.id }) { product ->
+                        ProductManagementCard(
+                            product = product,
+                            isAdmin = isAdmin,
+                            onEditClick = { if (isAdmin) editingProduct = product },
+                            onDeleteClick = { if (isAdmin) productToDelete = product }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (isAdmin) {
+        editingProduct?.let { product ->
+            EditProductDialog(
+                product = product,
+                onDismiss = { editingProduct = null },
+                onConfirm = { updatedProduct: ProductEntity ->
+                    onUpdateProduct(updatedProduct)
+                    editingProduct = null
+                },
+                onDelete = {
+                    productToDelete = product
+                    editingProduct = null
+                }
+            )
+        }
+
+        productToDelete?.let { product ->
+            AlertDialog(
+                onDismissRequest = { productToDelete = null },
+                title = { Text("Eliminar Producto", fontWeight = FontWeight.Bold) },
+                text = { Text("¿Estás seguro de que deseas eliminar '${product.name}'? Esta acción se sincronizará con la PC.") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            onDeleteProduct(product)
+                            productToDelete = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Eliminar")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { productToDelete = null }) {
+                        Text("Cancelar")
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun ProductManagementCard(
+    product: ProductEntity,
+    isAdmin: Boolean,
+    onEditClick: () -> Unit,
+    onDeleteClick: () -> Unit
+) {
+    val imageModel: Any? = remember(product.imageUri) {
+        product.imageUri?.let { uri ->
+            if (uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("content://")) uri
+            else File(uri)
+        }
+    }
+
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = isAdmin) { onEditClick() }
+    ) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                if (imageModel != null) {
+                    AsyncImage(
+                        model = imageModel,
+                        contentDescription = product.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(90.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(90.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.LightGray.copy(alpha = 0.3f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Image, contentDescription = null, tint = Color.Gray)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(text = product.name, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
+                Text(
+                    text = "$${String.format("%.2f", product.price)}",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp
+                )
+            }
+
+            if (isAdmin) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    IconButton(
+                        onClick = onEditClick,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Editar",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onDeleteClick,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Eliminar",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun EditProductDialog(
+    product: ProductEntity,
+    onDismiss: () -> Unit,
+    onConfirm: (ProductEntity) -> Unit,
+    onDelete: () -> Unit
+) {
+    val context = LocalContext.current
+
+    var name by remember { mutableStateOf(product.name) }
+    var priceText by remember { mutableStateOf(product.price.toString()) }
+    var category by remember { mutableStateOf(product.category) }
+    var imageUri by remember { mutableStateOf<String?>(product.imageUri) }
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { selectedUri ->
+            val permanentPath = saveImageToInternalStorage(context, selectedUri)
+            if (permanentPath != null) {
+                imageUri = permanentPath
+            }
+        }
+    }
+
+    val imageModel: Any? = remember(imageUri) {
+        imageUri?.let { uri ->
+            if (uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("content://")) uri
+            else File(uri)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Editar Producto") },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(100.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.LightGray.copy(alpha = 0.3f))
+                        .clickable { imagePickerLauncher.launch("image/*") },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (imageModel != null) {
+                        AsyncImage(
+                            model = imageModel,
+                            contentDescription = "Foto producto",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.Image, contentDescription = null, tint = Color.Gray)
+                            Text("Añadir foto", fontSize = 11.sp, color = Color.Gray)
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Nombre") },
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = priceText,
+                    onValueChange = { priceText = it },
+                    label = { Text("Precio") },
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = category,
+                    onValueChange = { category = it },
+                    label = { Text("Categoría") },
+                    singleLine = true
+                )
+
+                Spacer(Modifier.height(4.dp))
+                OutlinedButton(
+                    onClick = onDelete,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Eliminar este producto")
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val cleanName = name.trim()
+                    val cleanCategory = category.trim().ifEmpty { "General" }
+                    val price = priceText.toDoubleOrNull() ?: product.price
+
+                    onConfirm(
+                        product.copy(
+                            name = cleanName,
+                            price = price,
+                            category = cleanCategory,
+                            imageUri = imageUri
+                        )
+                    )
+                }
+            ) {
+                Text("Guardar")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancelar")
+            }
+        }
+    )
+}

@@ -1,0 +1,33 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+build/
+dist/
+*.spec
+
+recibos/
+
+__pycache__/
+*.pyc
+.kotlin/
+
+# Ejecutable compilado y datos de ejecución generados
+releases/
+imagenes_productos/
+pos_database.json
+
+# APK compilado (artefacto de build regenerable)
+app/release/
