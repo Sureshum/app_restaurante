@@ -59,7 +59,7 @@ from pydantic import BaseModel
 DEVELOPER_NAME = "Sureshum"
 DEVELOPER_CONTACT = "ssshum25ssshum25@gmail.com"
 
-APP_VERSION = "v1.8.2"
+APP_VERSION = "v1.8.3"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable)
@@ -1655,12 +1655,13 @@ class CashierWindow(QMainWindow):
 
         # Tabla de Items de la comanda
         self.table_items = QTableWidget()
-        self.table_items.setColumnCount(4)
-        self.table_items.setHorizontalHeaderLabels(["Cant.", "Producto", "P. Unit.", "Subtotal"])
+        self.table_items.setColumnCount(5)
+        self.table_items.setHorizontalHeaderLabels(["Cant.", "Producto", "P. Unit.", "Subtotal", "Ajustar"])
         self.table_items.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.table_items.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.table_items.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.table_items.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.table_items.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.table_items.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table_items.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table_items.setAlternatingRowColors(True)
@@ -2043,6 +2044,8 @@ class CashierWindow(QMainWindow):
             self.lbl_waiter_info.setText(f"Camarero / Atiende: <b>{camarero_txt}</b>")
 
             items = data.get("items", [])
+            for row in range(self.table_items.rowCount()):
+                self.table_items.removeCellWidget(row, 4)
             self.table_items.setRowCount(len(items))
             for row_idx, item in enumerate(items):
                 cant = item.get("cantidad", 1)
@@ -2062,6 +2065,7 @@ class CashierWindow(QMainWindow):
                 item_subt = QTableWidgetItem(f"${subt:.2f}")
                 item_subt.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 self.table_items.setItem(row_idx, 3, item_subt)
+                self.table_items.setCellWidget(row_idx, 4, self.build_qty_widget(item))
 
             subtotal_base = data.get("total", 0.0)
             monto_iva = subtotal_base * (IVA_PERCENTAGE / 100.0)
@@ -2077,6 +2081,73 @@ class CashierWindow(QMainWindow):
             self.lbl_subtotal.setText("Subtotal: $0.00")
             self.lbl_tax_info.setText(f"IVA ({IVA_PERCENTAGE:.1f}%): $0.00")
             self.lbl_total.setText("Total a Pagar: $0.00")
+
+    # --------------------------------------------------------
+    # AJUSTAR CANTIDADES DE LA COMANDA (BOTONES + / −)
+    # --------------------------------------------------------
+
+    def build_qty_widget(self, item: dict) -> QWidget:
+        widget = QWidget()
+        lay = QHBoxLayout(widget)
+        lay.setContentsMargins(4, 2, 4, 2)
+        lay.setSpacing(4)
+
+        btn_minus = QPushButton("−")
+        lbl_qty = QLabel(str(item.get("cantidad", 1)))
+        lbl_qty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_qty.setMinimumWidth(26)
+        lbl_qty.setStyleSheet("font-weight: bold; font-size: 13px;")
+        btn_plus = QPushButton("+")
+
+        for b in (btn_minus, btn_plus):
+            b.setFixedSize(28, 26)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setStyleSheet(
+                "font-weight: bold; font-size: 15px; color: white; "
+                "border-radius: 4px; border: none; padding: 0px;"
+            )
+        btn_minus.setStyleSheet(btn_minus.styleSheet() + "background-color: #EF4444;")
+        btn_plus.setStyleSheet(btn_plus.styleSheet() + "background-color: #16A34A;")
+
+        btn_minus.clicked.connect(lambda: self.adjust_item_quantity(item, -1))
+        btn_plus.clicked.connect(lambda: self.adjust_item_quantity(item, +1))
+
+        lay.addStretch()
+        lay.addWidget(btn_minus)
+        lay.addWidget(lbl_qty)
+        lay.addWidget(btn_plus)
+        lay.addStretch()
+        return widget
+
+    def adjust_item_quantity(self, item: dict, delta: int):
+        if not self.selected_area_id or not self.selected_table_key:
+            return
+
+        with db_lock:
+            room = rooms_db.get(self.selected_area_id)
+            if not room:
+                return
+            t_data = room["mesas"].get(self.selected_table_key)
+            if not t_data:
+                return
+
+            items = t_data.get("items", [])
+            precio_item = item.get("precio", 0.0)
+            for it in items:
+                if (
+                    it.get("nombre") == item.get("nombre")
+                    and abs((it.get("precio", 0.0)) - precio_item) < 0.01
+                ):
+                    nueva_cant = (it.get("cantidad", 1) or 1) + delta
+                    if nueva_cant <= 0:
+                        items.remove(it)
+                    else:
+                        it["cantidad"] = int(nueva_cant)
+                    update_occupied_status(t_data)
+                    mark_database_changed()
+                    break
+
+        self.refresh_ui()
 
     # --------------------------------------------------------
     # TRASLADO / MOVER MESA
